@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Functions
+
+log_info() {
+  echo -e "INFO: $1"
+}
+
+log_error() {
+  echo -e "ERROR: $1" >&2
+}
+
+# Main Execution
+
+if [[ "${BUILDKITE_PLUGIN_IMPROVED_CHECKOUT_DELETE_CHECKOUT:-false}" != "true" ]]; then
+  exit 0
+fi
+
+log_info "Removing checkout directory: $BUILDKITE_BUILD_CHECKOUT_PATH"
+
+if rm -rf "$BUILDKITE_BUILD_CHECKOUT_PATH"; then
+  log_info "Checkout directory removed successfully."
+else
+  log_error "Failed to remove checkout directory. Attempting with sudo."
+  if sudo rm -rf "$BUILDKITE_BUILD_CHECKOUT_PATH"; then
+    log_info "Checkout directory removed successfully with sudo."
+  else
+    log_error "Failed to remove checkout directory even with sudo."
+    ls -la "$BUILDKITE_BUILD_CHECKOUT_PATH"
+  fi
+fi

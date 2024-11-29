@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Functions
+
+log_section() {
+  echo -e "\n--- $1"
+}
+
+log_info() {
+  echo -e "INFO: $1"
+}
+
+# Main Execution
+
+log_section ":house_with_garden: Setting up environment"
+
+# Set custom checkout path if provided
+if [[ -n "${BUILDKITE_PLUGIN_IMPROVED_CHECKOUT_CHECKOUT_PATH:-}" ]]; then
+  BUILDKITE_BUILD_CHECKOUT_PATH="${BUILDKITE_PLUGIN_IMPROVED_CHECKOUT_CHECKOUT_PATH}"
+  export BUILDKITE_BUILD_CHECKOUT_PATH
+  log_info "Using custom checkout path: $BUILDKITE_BUILD_CHECKOUT_PATH"
+fi
+
+# Optionally interpolate environment variables in the checkout path
+if [[ -n "${BUILDKITE_PLUGIN_IMPROVED_CHECKOUT_INTERPOLATE_CHECKOUT_PATH:-}" ]]; then
+  INTERPOLATED_PATH=$(eval echo "${BUILDKITE_PLUGIN_IMPROVED_CHECKOUT_INTERPOLATE_CHECKOUT_PATH}")
+  BUILDKITE_BUILD_CHECKOUT_PATH="$INTERPOLATED_PATH"
+  export BUILDKITE_BUILD_CHECKOUT_PATH
+  log_info "Using interpolated checkout path: $BUILDKITE_BUILD_CHECKOUT_PATH"
+fi
