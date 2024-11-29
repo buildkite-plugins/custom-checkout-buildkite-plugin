@@ -1,14 +1,45 @@
-name: Buildkite Plugin
-description: Exceptional functionality
-author: https://github.com/buildkite-plugins
-requirements:
-  - bash
+name: Custom-checkout-buildkite-plugin
+description: A refined plugin for handling repository checkouts in Buildkite
+author: https://github.com/buildkite
+version: "1.0.0"
+requirements: []
+
 configuration:
   properties:
-    mandatory:
+    skip_checkout:
+      type: boolean
+      default: false
+      description: "If true, skips the checkout process."
+    delete_checkout:
+      type: boolean
+      default: false
+      description: "If true, deletes the checkout directory after the build."
+    checkout_path:
       type: string
-    optional:
+      description: "Custom path for checking out repositories."
+    interpolate_checkout_path:
       type: string
-  required:
-    - mandatory
+      description: "Checkout path with environment variables to interpolate."
+    repos:
+      type: array
+      description: "List of repositories to checkout."
+      items:
+        type: object
+        properties:
+          url:
+            type: string
+            description: "Repository Git URL."
+          ref:
+            type: string
+            description: "Branch, tag, or commit to checkout."
+          ssh_key_path:
+            type: string
+            description: "Path to SSH key for repository access."
+          clone_flags:
+            type: array
+            items:
+              type: string
+            description: "Additional flags for git clone."
+        required:
+          - url
   additionalProperties: false

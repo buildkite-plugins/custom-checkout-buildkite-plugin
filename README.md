@@ -1,48 +1,35 @@
-# Template Buildkite Plugin [![Build status](https://badge.buildkite.com/d673030645c7f3e7e397affddd97cfe9f93a40547ed17b6dc5.svg)](https://buildkite.com/buildkite/plugins-template)
+# Custom Checkout Buildkite Plugin 
 
-A Buildkite plugin for something awesome
-
-## Options
-
-These are all the options available to configure this plugin's behaviour.
+A Buildkite plugin to specify a custom Git repository, branch, or commit to checkout in your pipeline steps, overriding the default repository configured in the pipeline settings.
 
 ### Required
 
-#### `mandatory` (string)
+#### `repository` (string)
 
-A great description of what this is supposed to do.
+The Git repository URL to clone.
 
 ### Optional
 
-#### `optional` (string)
+#### `branch` (string)
 
-Describe how the plugin behaviour changes if this option is not specified, allowed values and its default.
+The Git branch to checkout.
 
-## Examples
+#### `commit` (string)
 
-Show how your plugin is to be used
+The Git commit SHA to checkout.
 
-```yaml
-steps:
-  - label: "🔨 Running plugin"
-    command: "echo template plugin"
-    plugins:
-      - template#v1.0.0:
-          mandatory: "value"
-```
+## Example
 
-## And with other options as well
-
-If you want to change the plugin behaviour:
+Add the following to your `pipeline.yml`:
 
 ```yaml
 steps:
-  - label: "🔨 Running plugin"
-    command: "echo template plugin with options"
+  - label: "Build with Custom Repo"
     plugins:
-      - template#v1.0.0:
-          mandatory: "value"
-          optional: "example"
+      - buildkite-plugins/custom-checkout#v1.0.0:
+          repository: "git@github.com:buildkite-plugins/custom-checkout-buildkite-plugin.git"
+          branch: "main"
+    command: "your_command"
 ```
 
 ## ⚒ Developing
@@ -55,7 +42,12 @@ bk local run
 
 ## 👩‍💻 Contributing
 
-Your policy on how to contribute to the plugin!
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a new Pull Request
+
 
 ## 📜 License
 
