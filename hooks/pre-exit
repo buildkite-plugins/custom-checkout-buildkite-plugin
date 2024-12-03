@@ -14,7 +14,7 @@ log_error() {
 
 # Main Execution
 
-if [[ "${BUILDKITE_PLUGIN_IMPROVED_CHECKOUT_DELETE_CHECKOUT:-false}" != "true" ]]; then
+if [[ "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_DELETE_CHECKOUT:-false}" != "true" ]]; then
   exit 0
 fi
 
