@@ -113,9 +113,15 @@ clone_repository() {
 # Main execution
 log_section ":open_file_folder: Setting up workspace"
 
-# Check for skip checkout (only skip the default checkout)
-if [[ "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_GIT_SKIP_CHECKOUT:-false}" == "true" ]]; then
+# Check for skip checkout
+if [[ "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT:-false}" == "true" ]]; then
   log_info "Skipping default checkout as per configuration."
+  
+  # If we're just skipping checkout and no repos are specified, exit successfully
+  if [[ -z "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0:-}" && -z "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL:-}" ]]; then
+    log_info "No repositories configured for checkout, skipping repository checkout"
+    exit 0
+  fi
 fi
 
 # Ensure required environment variables are set
@@ -174,8 +180,12 @@ while true; do
 done || true
 
 if [[ $REPOS_COUNT -eq 0 ]]; then
-  log_error "No repositories configured for checkout"
-  exit 1
+  # Only error if we're not in skip_checkout mode
+  if [[ "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT:-false}" != "true" ]]; then
+    log_error "No repositories configured for checkout"
+    exit 1
+  fi
+  exit 0
 fi
 
 if [[ "$CLONE_SUCCESS" == "true" ]]; then
