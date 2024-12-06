@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
+# Keep the existing settings
 set -euo pipefail
 
 # Functions
-
 log_section() {
   echo -e "\n--- $1"
 }
@@ -17,30 +17,43 @@ log_error() {
 }
 
 check_required_env() {
-  local var_name="$1"
-  if [[ -z "${!var_name:-}" ]]; then
-    log_error "Required environment variable '$var_name' is not set."
+  if [[ -z "${!1:-}" ]]; then
+    log_error "Required environment variable $1 is not set"
     exit 1
   fi
 }
 
 add_ssh_host() {
   local host="$1"
-  local expected_fingerprint="$2"
+  local fingerprint="$2"
+  local tmp_file
 
-  if ! ssh-keygen -F "$host" > /dev/null; then
+  # Create .ssh directory if it doesn't exist
+  mkdir -p /root/.ssh
+
+  # Create known_hosts file if it doesn't exist
+  touch /root/.ssh/known_hosts
+
+  # Check if host is already in known_hosts
+  if ! grep -q "^$host" /root/.ssh/known_hosts; then
     log_info "$host not found in known_hosts"
-    local tmp_file
+    
+    # Get host key
     tmp_file=$(mktemp)
     ssh-keyscan -t rsa "$host" > "$tmp_file"
-    local fingerprint
-    fingerprint=$(ssh-keygen -lf "$tmp_file" | awk '{ print $2 }')
-    if [[ "$fingerprint" != "$expected_fingerprint" ]]; then
-      log_error "Fingerprint mismatch for $host. Expected $expected_fingerprint, got $fingerprint."
+    
+    # Verify fingerprint
+    local actual_fingerprint
+    actual_fingerprint=$(ssh-keygen -lf "$tmp_file" | awk '{ print $2 }')
+    
+    if [[ "$actual_fingerprint" != "$fingerprint" ]]; then
+      log_error "Fingerprint mismatch for $host. Expected $fingerprint, got $actual_fingerprint."
+      rm "$tmp_file"
       exit 1
     fi
-    mkdir -p "$HOME/.ssh"
-    cat "$tmp_file" >> "$HOME/.ssh/known_hosts"
+    
+    # Add to known_hosts
+    cat "$tmp_file" >> /root/.ssh/known_hosts
     rm "$tmp_file"
     log_info "$host added to known_hosts"
   fi
@@ -51,7 +64,7 @@ clone_repository() {
   local checkout_ref="$2"
   local ssh_key_path="$3"
   local clone_dir="$4"
-  local clone_flags=("${!5}")
+  local clone_flags=("${@:5}")
 
   log_info "Cloning repository '$repo_url' into '$clone_dir'"
   mkdir -p "$clone_dir"
@@ -67,46 +80,55 @@ clone_repository() {
     log_info "Repository already exists. Fetching latest changes."
     git fetch origin
   else
-    git clone "${clone_flags[@]}" "$repo_url" .
+    if [[ ${#clone_flags[@]} -eq 0 ]]; then
+      log_info "Cloning without additional flags"
+      git clone "$repo_url" .
+    else
+      log_info "Cloning with flags: ${clone_flags[*]}"
+      git clone "${clone_flags[@]}" "$repo_url" .
+    fi
   fi
 
   # Checkout the specified ref
   if [[ -n "$checkout_ref" ]]; then
+    log_info "Checking out ref: $checkout_ref"
     git checkout "$checkout_ref"
-  else
+  elif [[ -n "${BUILDKITE_COMMIT:-}" ]]; then
+    log_info "Checking out commit: $BUILDKITE_COMMIT"
     git checkout "$BUILDKITE_COMMIT"
   fi
 
   # Handle Git LFS
   if command -v git-lfs > /dev/null; then
+    log_info "Setting up Git LFS"
     git lfs install
     git lfs pull
   fi
 
   popd > /dev/null
+  log_info "Repository cloned successfully"
+  return 0
 }
 
-# Main Execution
-
+# Main execution
 log_section ":open_file_folder: Setting up workspace"
 
-# Check for skip checkout
-if [[ "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT:-false}" == "true" ]]; then
-  log_info "Skipping checkout as per configuration."
-  exit 0
+# Check for skip checkout (only skip the default checkout)
+if [[ "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT41_GIT_SKIP_CHECKOUT:-false}" == "true" ]]; then
+  log_info "Skipping default checkout as per configuration."
 fi
 
 # Ensure required environment variables are set
 check_required_env "BUILDKITE_BUILD_CHECKOUT_PATH"
-mkdir -p "$BUILDKITE_BUILD_CHECKOUT_PATH"
-cd "$BUILDKITE_BUILD_CHECKOUT_PATH"
+mkdir -p "$BUILDKITE_BUILD_CHECKOUT_PATH" || { log_error "Failed to create checkout path"; exit 1; }
+cd "$BUILDKITE_BUILD_CHECKOUT_PATH" || { log_error "Failed to change to checkout path"; exit 1; }
 
 log_section ":key: Configuring SSH"
 
 # Add SSH hosts (configurable)
 SSH_HOSTS=("github.com")
 SSH_FINGERPRINTS=(
-  "SHA256:nThbg6GmWd4dilYsXWXaYLsOMV5rGGDrEXki4ZyxjTk"  # GitHub RSA
+  "SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s"
 )
 
 for i in "${!SSH_HOSTS[@]}"; do
@@ -115,30 +137,57 @@ done
 
 log_section ":git: Starting repository checkout"
 
-# Parse plugin configuration for repositories
+# Repository checkout loop
 REPOS_COUNT=0
+CLONE_SUCCESS=false
 
 while true; do
-  REPO_URL_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_URL"
-  REPO_REF_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_REF"
-  REPO_SSH_KEY_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_SSH_KEY_PATH"
-  REPO_CLONE_FLAGS_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_CLONE_FLAGS"
-
+  REPO_URL_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT41_GIT_REPOS_${REPOS_COUNT}_URL"
+  
   if [[ -z "${!REPO_URL_VAR:-}" ]]; then
-    break
+    REPO_URL_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT41_GIT_REPOS_${REPOS_COUNT}"
+    if [[ -z "${!REPO_URL_VAR:-}" ]]; then
+      break
+    fi
   fi
-
+  
   REPO_URL="${!REPO_URL_VAR}"
+  log_info "Processing repository $REPOS_COUNT: $REPO_URL"
+  
+  REPO_REF_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT41_GIT_REPOS_${REPOS_COUNT}_REF"
+  REPO_SSH_KEY_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT41_GIT_REPOS_${REPOS_COUNT}_SSH_KEY_PATH"
+  REPO_CLONE_FLAGS_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT41_GIT_REPOS_${REPOS_COUNT}_CLONE_FLAGS"
+
   REPO_REF="${!REPO_REF_VAR:-}"
   REPO_SSH_KEY_PATH="${!REPO_SSH_KEY_VAR:-}"
-  IFS=' ' read -r -a REPO_CLONE_FLAGS <<< "${!REPO_CLONE_FLAGS_VAR:-}"
-
-  REPO_NAME=$(basename -s .git "${REPO_URL}")
-  CLONE_DIR="${BUILDKITE_BUILD_CHECKOUT_PATH}/${REPO_NAME}"
-
-  clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$CLONE_DIR" REPO_CLONE_FLAGS[@]
+  REPO_CLONE_FLAGS=()
+  
+  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$BUILDKITE_BUILD_CHECKOUT_PATH" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
+    CLONE_SUCCESS=true
+    log_info "Successfully cloned repository $REPO_URL"
+  else
+    log_error "Failed to clone repository $REPO_URL"
+    exit 1
+  fi
 
   ((REPOS_COUNT++))
-done
+done || true
 
-log_info "Repository checkout completed successfully."
+if [[ $REPOS_COUNT -eq 0 ]]; then
+  log_error "No repositories configured for checkout"
+  exit 1
+fi
+
+if [[ "$CLONE_SUCCESS" == "true" ]]; then
+  if [[ -d ".git" ]]; then
+    if git rev-parse HEAD > /dev/null 2>&1; then
+      COMMIT=$(git rev-parse HEAD)
+      buildkite-agent meta-data set "buildkite:git:commit" "$COMMIT" || true
+    fi
+  fi
+  log_info "All operations completed successfully"
+  exit 0
+else
+  log_error "No repositories were successfully cloned"
+  exit 1
+fi
