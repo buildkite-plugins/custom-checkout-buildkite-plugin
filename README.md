@@ -1,60 +1,106 @@
-# Custom Checkout Buildkite Plugin 
+# Custom Checkout Buildkite Plugin
 
-A Buildkite plugin to specify a custom Git repository, branch, or commit to checkout in your pipeline steps, overriding the default repository configured in the pipeline settings.
+A Buildkite plugin for customizing repository checkouts in your pipeline. This plugin allows you to:
+- Skip the default repository checkout
+- Check out multiple repositories
+- Configure custom checkout paths
 
-### Required
+## Features
 
-#### `repository` (string)
+- 🚫 Skip default checkout
+- 📁 Custom checkout paths
+- 🔑 SSH key support
+- 📦 Multiple repository support
 
-The Git repository URL to clone.
+## Configuration
 
-### Optional
-
-#### `commit` (string)
-
-The Git commit SHA to checkout.
-
-## Example
-
-To skip your initial repository configured in your settings add the following to your `pipeline.yml`:
+### Basic Configuration
 
 ```yaml
 steps:
-  - label: "Build with Custom Repo"
-    command: "buildkite-agent pipeline upload"
+  - label: "Skip checkout"
+    command: echo "Skipping checkout"
     plugins:
-      - buildkite-plugins/custom-checkout#v1.0.0:
+      - https://github.com/buildkite-plugins/custom-checkout-buildkite-plugin.git:
           skip_checkout: true
 ```
 
-To checkout different repository then you specified in your settings:  
+### Advanced Configuration
 
 ```yaml
 steps:
-  - label: "Build with Custom Repo"
+  - label: "Custom repository checkout"
     command: "buildkite-agent pipeline upload"
     plugins:
-      - buildkite-plugins/custom-checkout#v1.0.0:
+      - https://github.com/buildkite-plugins/custom-checkout-buildkite-plugin.git:
           skip_checkout: true
           repos:
-            - url: "https://github.com/ivannalisetska/detect-clowns-buildkite-plugin.git"
+            - url: "https://github.com/org/repo.git"
+              ref: "main"
 ```
 
-## ⚒ Developing
+## Configuration Options
 
-You can use the [bk cli](https://github.com/buildkite/cli) to run the [pipeline](.buildkite/pipeline.yml) locally:
+### Plugin Options
 
-```bash
-bk local run
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `skip_checkout` | false | `false` | Skip the default repository checkout |
+| `repos` | false | `[]` | List of repositories to check out |
+| `delete_checkout` | false | `false` | Delete checkout directory after build |
+| `checkout_path` | false | `$BUILDKITE_BUILD_CHECKOUT_PATH` | Custom checkout path |
+
+### Repository Options
+
+Each repository in the `repos` list can have the following options:
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `url` | true | | Repository Git URL |
+| `ref` | false | | Branch, tag, or commit to checkout |
+| `clone_flags` | false | `[]` | Additional flags for git clone |
+
+## Examples
+
+### Skip Default Checkout
+
+```yaml
+steps:
+  - label: "Skip checkout"
+    command: "echo "Skipping checkout"
+    plugins:
+      - https://github.com/buildkite-plugins/custom-checkout-buildkite-plugin.git:
+          skip_checkout: true
 ```
 
-## 👩‍💻 Contributing
+### Custom Repository Checkout
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a new Pull Request
+```yaml
+steps:
+  - label: "Custom checkout"
+    command: "buildkite-agent pipeline upload"
+    plugins:
+      - https://github.com/buildkite-plugins/custom-checkout-buildkite-plugin.git:
+          skip_checkout: true
+          repos:
+            - url: "https://github.com/org/repo.git"
+```
+
+### Multiple Repositories
+
+```yaml
+steps:
+  - label: "Multiple repos"
+    command: "./script.sh"
+    plugins:
+      - https://github.com/buildkite-plugins/custom-checkout-buildkite-plugin.git:
+          skip_checkout: true
+          repos:
+            - url: "https://github.com/org/repo1.git"
+              ref: "main"
+            - url: "https://github.com/org/repo2.git"
+              ref: "dev"
+```
 
 ## Developing
 
@@ -64,13 +110,17 @@ To run testing, shellchecks and plugin linting use use `bk run` with the [Buildk
 bk run
 ```
 
-Or if you want to run just the tests, you can use the docker [Plugin Tester](https://github.com/buildkite-plugins/buildkite-plugin-tester):
-
 ```bash
-docker run --rm -ti -v "${PWD}":/plugin buildkite/plugin-tester:latest
+docker-compose run --rm tests
 ```
 
+## Contributing
 
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
 ## 📜 License
 
