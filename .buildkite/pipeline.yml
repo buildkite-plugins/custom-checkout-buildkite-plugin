@@ -1,8 +1,7 @@
 steps:
-  - label: ":sparkles: Lint"
+  - label: ":bash: Plugin"
     plugins:
-      - plugin-linter#v3.3.0:
-          id: cluster-secrets
+      - plugin-tester#v1.1.1: ~
 
   - label: ":shell: Shellcheck"
     plugins:
@@ -13,4 +12,4 @@ steps:
   - label: ":Tests: Docker-compose"
     plugins:
       - docker-compose#v5.5.0:
-          workdir: /app
+          run: tests
