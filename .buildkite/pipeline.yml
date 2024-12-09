@@ -10,7 +10,7 @@ steps:
           files:
             - hooks/**
 
-  - label: ":ruby: Ruby"
+  - label: ":Tests: Docker-compose"
     plugins:
       - docker-compose#v5.5.0:
-          run: ruby
+          workdir: /app
