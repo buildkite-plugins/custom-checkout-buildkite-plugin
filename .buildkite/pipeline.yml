@@ -10,8 +10,7 @@ steps:
           files:
             - hooks/**
 
-  - label: ":shell: Tests"
+  - label: ":ruby: Ruby"
     plugins:
-      - plugin-tester#v1.1.1:
-          folders:
-            - tests
+      - docker-compose#v5.5.0:
+          run: ruby
