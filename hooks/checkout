@@ -5,15 +5,23 @@ set -euo pipefail
 
 # Functions
 log_section() {
-  echo -e "\n--- $1"
+  echo -e "\n🔷 --- $1"
 }
 
 log_info() {
-  echo -e "INFO: $1"
+  echo -e "\033[36mℹ️  INFO:\033[0m $1"
+}
+
+log_success() {
+  echo -e "\033[32m✅ SUCCESS:\033[0m $1"
+}
+
+log_warning() {
+  echo -e "\033[33m⚠️  WARNING:\033[0m $1"
 }
 
 log_error() {
-  echo -e "ERROR: $1" >&2
+  echo -e "\033[31m❌ ERROR:\033[0m $1" >&2
 }
 
 check_required_env() {
@@ -115,11 +123,11 @@ log_section ":open_file_folder: Setting up workspace"
 
 # Check for skip checkout
 if [[ "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT:-false}" == "true" ]]; then
-  log_info "Skipping default checkout as per configuration."
+  log_warning "🚫 Skipping default checkout as per configuration."
   
   # If we're just skipping checkout and no repos are specified, exit successfully
   if [[ -z "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0:-}" && -z "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL:-}" ]]; then
-    log_info "No repositories configured for checkout, skipping repository checkout"
+    log_info "📝 No repositories configured for checkout, skipping repository checkout"
     exit 0
   fi
 fi
@@ -162,15 +170,13 @@ while true; do
   
   REPO_REF_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_REF"
   REPO_SSH_KEY_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_SSH_KEY_PATH"
-  REPO_CLONE_FLAGS_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_CLONE_FLAGS"
-
   REPO_REF="${!REPO_REF_VAR:-}"
   REPO_SSH_KEY_PATH="${!REPO_SSH_KEY_VAR:-}"
   REPO_CLONE_FLAGS=()
   
   if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$BUILDKITE_BUILD_CHECKOUT_PATH" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
     CLONE_SUCCESS=true
-    log_info "Successfully cloned repository $REPO_URL"
+    log_success "Successfully cloned repository $REPO_URL"
   else
     log_error "Failed to clone repository $REPO_URL"
     exit 1

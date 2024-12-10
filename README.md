@@ -19,9 +19,9 @@ A Buildkite plugin for customizing repository checkouts in your pipeline. This p
 ```yaml
 steps:
   - label: "Skip checkout"
-    command: echo "Skipping checkout"
+    command: 'echo "Skipping checkout"'
     plugins:
-      - https://github.com/buildkite-plugins/custom-checkout-buildkite-plugin.git:
+      - buildkite-plugins/custom-checkout#v1.0.0:
           skip_checkout: true
 ```
 
@@ -32,7 +32,7 @@ steps:
   - label: "Custom repository checkout"
     command: "buildkite-agent pipeline upload"
     plugins:
-      - https://github.com/buildkite-plugins/custom-checkout-buildkite-plugin.git:
+      - buildkite-plugins/custom-checkout#v1.0.0:
           skip_checkout: true
           repos:
             - url: "https://github.com/org/repo.git"
@@ -67,9 +67,9 @@ Each repository in the `repos` list can have the following options:
 ```yaml
 steps:
   - label: "Skip checkout"
-    command: "echo "Skipping checkout"
+    command: 'echo "Skipping checkout"'
     plugins:
-      - https://github.com/buildkite-plugins/custom-checkout-buildkite-plugin.git:
+      - buildkite-plugins/custom-checkout#v1.0.0:
           skip_checkout: true
 ```
 
@@ -80,7 +80,7 @@ steps:
   - label: "Custom checkout"
     command: "buildkite-agent pipeline upload"
     plugins:
-      - https://github.com/buildkite-plugins/custom-checkout-buildkite-plugin.git:
+      - buildkite-plugins/custom-checkout#v1.0.0:
           skip_checkout: true
           repos:
             - url: "https://github.com/org/repo.git"
@@ -93,7 +93,7 @@ steps:
   - label: "Multiple repos"
     command: "./script.sh"
     plugins:
-      - https://github.com/buildkite-plugins/custom-checkout-buildkite-plugin.git:
+      - buildkite-plugins/custom-checkout#v1.0.0:
           skip_checkout: true
           repos:
             - url: "https://github.com/org/repo1.git"
