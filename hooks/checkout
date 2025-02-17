@@ -36,14 +36,23 @@ add_ssh_host() {
   local fingerprint="$2"
   local tmp_file
 
+  echo "home directory is $HOME"
   # Create .ssh directory if it doesn't exist
-  mkdir -p /root/.ssh
+  echo "creating .ssh directory"
+
+  if [ ! -d "$HOME/.ssh" ]; then
+    echo "Creating .ssh directory..."
+    mkdir -p "$HOME/.ssh"
+    chmod 700 "$HOME/.ssh"
+  else
+      echo ".ssh directory already exists."
+  fi
 
   # Create known_hosts file if it doesn't exist
-  touch /root/.ssh/known_hosts
+  touch "$HOME/.ssh/known_hosts"
 
   # Check if host is already in known_hosts
-  if ! grep -q "^$host" /root/.ssh/known_hosts; then
+  if ! grep -q "^$host" "$HOME/.ssh/known_hosts"; then
     log_info "$host not found in known_hosts"
     
     # Get host key
@@ -61,7 +70,7 @@ add_ssh_host() {
     fi
     
     # Add to known_hosts
-    cat "$tmp_file" >> /root/.ssh/known_hosts
+    cat "$tmp_file" >> "$HOME/.ssh/known_hosts"
     rm "$tmp_file"
     log_info "$host added to known_hosts"
   fi
