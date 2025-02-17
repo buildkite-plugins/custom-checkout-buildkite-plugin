@@ -39,7 +39,14 @@ add_ssh_host() {
   echo "home directory is $HOME"
   # Create .ssh directory if it doesn't exist
   echo "creating .ssh directory"
-  mkdir -p $HOME/.ssh
+
+  if [ ! -d "$HOME/.ssh" ]; then
+    echo "Creating .ssh directory..."
+    mkdir -p "$HOME/.ssh"
+    chmod 700 "$HOME/.ssh"
+  else
+      echo ".ssh directory already exists."
+  fi
 
   # Create known_hosts file if it doesn't exist
   touch $HOME/.ssh/known_hosts
