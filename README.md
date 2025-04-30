@@ -102,13 +102,7 @@ steps:
               ref: "dev"
 ```
 
-## Developing
-
-To run testing, shellchecks and plugin linting use use `bk run` with the [Buildkite CLI](https://github.com/buildkite/cli).
-
-```bash
-bk run
-```
+## Testing
 
 ```bash
 docker-compose run --rm tests
