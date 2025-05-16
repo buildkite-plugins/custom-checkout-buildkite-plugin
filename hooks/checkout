@@ -181,9 +181,20 @@ while true; do
   REPO_SSH_KEY_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_SSH_KEY_PATH"
   REPO_REF="${!REPO_REF_VAR:-}"
   REPO_SSH_KEY_PATH="${!REPO_SSH_KEY_VAR:-}"
+  # Populate REPO_CLONE_FLAGS from environment variables
   REPO_CLONE_FLAGS=()
-  
-  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$BUILDKITE_BUILD_CHECKOUT_PATH" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
+  CLONE_FLAG_INDEX=0
+  while true; do
+    CLONE_FLAG_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_CLONE_FLAGS_${CLONE_FLAG_INDEX}"
+    if [[ -n "${!CLONE_FLAG_VAR:-}" ]]; then
+      REPO_CLONE_FLAGS+=("${!CLONE_FLAG_VAR}")
+      ((CLONE_FLAG_INDEX++))
+    else
+      break
+    fi
+  done
+
+  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$BUILDKITE_BUILD_CHECKOUT_PATH" "${REPO_CLONE_FLAGS[@]+\"${REPO_CLONE_FLAGS[@]}\"}"; then
     CLONE_SUCCESS=true
     log_success "Successfully cloned repository $REPO_URL"
   else
