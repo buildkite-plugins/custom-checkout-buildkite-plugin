@@ -59,6 +59,6 @@ teardown() {
 
   # Verify correct behavior
   [ "$status" -eq 0 ]
-  echo "$output" | grep 'Cloning with flags: "--depth=1"'
+  echo "$output" | grep 'Cloning with flags: --depth=1'
   cat "$MOCK_GIT_ARGS_FILE" | grep -- "--depth=1"
 }
