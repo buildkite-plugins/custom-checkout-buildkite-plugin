@@ -102,7 +102,7 @@ clone_repository() {
       git clone "$repo_url" .
     else
       log_info "Cloning with flags: ${clone_flags[*]}"
-      git clone "${clone_flags[@]}" "$repo_url" .
+      git clone ${clone_flags[@]} "$repo_url" .
     fi
   fi
 
@@ -194,7 +194,7 @@ while true; do
     fi
   done
 
-  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$BUILDKITE_BUILD_CHECKOUT_PATH" "${REPO_CLONE_FLAGS[@]+\"${REPO_CLONE_FLAGS[@]}\"}"; then
+  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$BUILDKITE_BUILD_CHECKOUT_PATH" "${REPO_CLONE_FLAGS[@]}"; then
     CLONE_SUCCESS=true
     log_success "Successfully cloned repository $REPO_URL"
   else
