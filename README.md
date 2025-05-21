@@ -110,7 +110,7 @@ steps:
   - label: "Checkout with mirror"
     command: "buildkite-agent pipeline upload"
     plugins:
-      - custom-checkout#v1.1.0:
+      - custom-checkout#v1.2.1:
           skip_checkout: true
           repos:
             - url: "https://github.com/org/repo.git"
