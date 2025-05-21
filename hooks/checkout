@@ -54,21 +54,21 @@ add_ssh_host() {
   # Check if host is already in known_hosts
   if ! grep -q "^$host" "$HOME/.ssh/known_hosts"; then
     log_info "$host not found in known_hosts"
-
+    
     # Get host key
     tmp_file=$(mktemp)
     ssh-keyscan -t rsa "$host" > "$tmp_file"
-
+    
     # Verify fingerprint
     local actual_fingerprint
     actual_fingerprint=$(ssh-keygen -lf "$tmp_file" | awk '{ print $2 }')
-
+    
     if [[ "$actual_fingerprint" != "$fingerprint" ]]; then
       log_error "Fingerprint mismatch for $host. Expected $fingerprint, got $actual_fingerprint."
       rm "$tmp_file"
       exit 1
     fi
-
+    
     # Add to known_hosts
     cat "$tmp_file" >> "$HOME/.ssh/known_hosts"
     rm "$tmp_file"
@@ -76,37 +76,80 @@ add_ssh_host() {
   fi
 }
 
+# Get repository name from URL
+get_repo_name() {
+  local repo_url="$1"
+  basename "${repo_url}" .git
+}
+
+# Setup or update Git mirror
+setup_git_mirror() {
+  local repo_url="$1"
+  local mirror_path="$2"
+  local ssh_key_path="$3"
+  local mirror_name="${4:-}"
+  
+  # If mirror name is not provided, extract it from the repo URL
+  if [[ -z "$mirror_name" ]]; then
+    mirror_name=$(get_repo_name "$repo_url")
+  fi
+  
+  local full_mirror_path="${mirror_path}/${mirror_name}"
+  
+  log_info "Setting up Git mirror for $repo_url at $full_mirror_path"
+  
+  # Configure SSH command if SSH key is provided
+  if [[ -n "$ssh_key_path" ]]; then
+    export GIT_SSH_COMMAND="ssh -i $ssh_key_path -o IdentitiesOnly=yes"
+  fi
+  
+  # Create mirror directory if it doesn't exist
+  mkdir -p "$mirror_path"
+  
+  # Initialize or update mirror
+  if [[ -d "$full_mirror_path" ]]; then
+    log_info "Updating existing mirror"
+    pushd "$full_mirror_path" > /dev/null
+    git remote set-url origin "$repo_url"
+    git fetch --prune origin
+    popd > /dev/null
+  else
+    log_info "Creating new mirror"
+    git clone --mirror "$repo_url" "$full_mirror_path"
+  fi
+  
+  echo "$full_mirror_path"
+}
+
 clone_repository() {
   local repo_url="$1"
   local checkout_ref="$2"
   local ssh_key_path="$3"
   local clone_dir="$4"
-  local clone_flags=("${@:5}")
+  local mirror_url="${5:-}"
+  local clone_flags=("${@:6}")
 
-  log_info "Cloning repository '$repo_url' into '$clone_dir'"
+  log_info "Cloning repository into '$clone_dir'"
   mkdir -p "$clone_dir"
   pushd "$clone_dir" > /dev/null
 
-  # Configure SSH command if SSH key is provided
   if [[ -n "$ssh_key_path" ]]; then
     export GIT_SSH_COMMAND="ssh -i $ssh_key_path -o IdentitiesOnly=yes"
   fi
 
-  # Clone or fetch repository
-  if [[ -d ".git" ]]; then
-    log_info "Repository already exists. Fetching latest changes."
-    git fetch origin
-  else
-    if [[ ${#clone_flags[@]} -eq 0 ]]; then
-      log_info "Cloning without additional flags"
-      git clone "$repo_url" .
+  if [[ -n "$mirror_url" ]]; then
+    log_info "Trying to clone from mirror: $mirror_url"
+    if git clone "${clone_flags[@]}" "$mirror_url" .; then
+      log_success "Cloned from mirror: $mirror_url"
+      git remote set-url origin "$repo_url"
     else
-      log_info "Cloning with flags: ${clone_flags[*]}"
+      log_warning "Mirror clone failed, falling back to original URL: $repo_url"
       git clone "${clone_flags[@]}" "$repo_url" .
     fi
+  else
+    git clone "${clone_flags[@]}" "$repo_url" .
   fi
 
-  # Checkout the specified ref
   if [[ -n "$checkout_ref" ]]; then
     log_info "Checking out ref: $checkout_ref"
     git checkout "$checkout_ref"
@@ -115,7 +158,6 @@ clone_repository() {
     git checkout "$BUILDKITE_COMMIT"
   fi
 
-  # Handle Git LFS
   if command -v git-lfs > /dev/null; then
     log_info "Setting up Git LFS"
     git lfs install
@@ -133,7 +175,7 @@ log_section ":open_file_folder: Setting up workspace"
 # Check for skip checkout
 if [[ "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT:-false}" == "true" ]]; then
   log_warning "🚫 Skipping default checkout as per configuration."
-
+  
   # If we're just skipping checkout and no repos are specified, exit successfully
   if [[ -z "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0:-}" && -z "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL:-}" ]]; then
     log_info "📝 No repositories configured for checkout, skipping repository checkout"
@@ -158,6 +200,10 @@ for i in "${!SSH_HOSTS[@]}"; do
   add_ssh_host "${SSH_HOSTS[$i]}" "${SSH_FINGERPRINTS[$i]}"
 done
 
+# Get global mirror settings
+GLOBAL_USE_MIRROR="${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_USE_MIRROR:-false}"
+GLOBAL_MIRROR_PATH="${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_MIRROR_PATH:-$HOME/.git-mirrors}"
+
 log_section ":git: Starting repository checkout"
 
 # Repository checkout loop
@@ -166,35 +212,31 @@ CLONE_SUCCESS=false
 
 while true; do
   REPO_URL_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_URL"
-
+  REPO_MIRROR_URL_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_MIRROR_URL"
+  
   if [[ -z "${!REPO_URL_VAR:-}" ]]; then
     REPO_URL_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}"
     if [[ -z "${!REPO_URL_VAR:-}" ]]; then
       break
     fi
   fi
-
+  
   REPO_URL="${!REPO_URL_VAR}"
+  REPO_MIRROR_URL="${!REPO_MIRROR_URL_VAR:-}"
   log_info "Processing repository $REPOS_COUNT: $REPO_URL"
-
+  
   REPO_REF_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_REF"
   REPO_SSH_KEY_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_SSH_KEY_PATH"
+  REPO_USE_MIRROR_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_USE_MIRROR"
+  REPO_MIRROR_NAME_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_MIRROR_NAME"
+  
   REPO_REF="${!REPO_REF_VAR:-}"
   REPO_SSH_KEY_PATH="${!REPO_SSH_KEY_VAR:-}"
-  # Populate REPO_CLONE_FLAGS from environment variables
+  REPO_USE_MIRROR="${!REPO_USE_MIRROR_VAR:-$GLOBAL_USE_MIRROR}"
+  REPO_MIRROR_NAME="${!REPO_MIRROR_NAME_VAR:-}"
   REPO_CLONE_FLAGS=()
-  CLONE_FLAG_INDEX=0
-  while true; do
-    CLONE_FLAG_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_CLONE_FLAGS_${CLONE_FLAG_INDEX}"
-    if [[ -n "${!CLONE_FLAG_VAR:-}" ]]; then
-      REPO_CLONE_FLAGS+=("${!CLONE_FLAG_VAR}")
-      ((CLONE_FLAG_INDEX++))
-    else
-      break
-    fi
-  done
-
-  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$BUILDKITE_BUILD_CHECKOUT_PATH" "${REPO_CLONE_FLAGS[@]}"; then
+  
+  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$BUILDKITE_BUILD_CHECKOUT_PATH" "$REPO_MIRROR_URL" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
     CLONE_SUCCESS=true
     log_success "Successfully cloned repository $REPO_URL"
   else
