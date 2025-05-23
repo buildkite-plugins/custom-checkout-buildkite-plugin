@@ -82,45 +82,6 @@ get_repo_name() {
   basename "${repo_url}" .git
 }
 
-# Setup or update Git mirror
-setup_git_mirror() {
-  local repo_url="$1"
-  local mirror_path="$2"
-  local ssh_key_path="$3"
-  local mirror_name="${4:-}"
-  
-  # If mirror name is not provided, extract it from the repo URL
-  if [[ -z "$mirror_name" ]]; then
-    mirror_name=$(get_repo_name "$repo_url")
-  fi
-  
-  local full_mirror_path="${mirror_path}/${mirror_name}"
-  
-  log_info "Setting up Git mirror for $repo_url at $full_mirror_path"
-  
-  # Configure SSH command if SSH key is provided
-  if [[ -n "$ssh_key_path" ]]; then
-    export GIT_SSH_COMMAND="ssh -i $ssh_key_path -o IdentitiesOnly=yes"
-  fi
-  
-  # Create mirror directory if it doesn't exist
-  mkdir -p "$mirror_path"
-  
-  # Initialize or update mirror
-  if [[ -d "$full_mirror_path" ]]; then
-    log_info "Updating existing mirror"
-    pushd "$full_mirror_path" > /dev/null
-    git remote set-url origin "$repo_url"
-    git fetch --prune origin
-    popd > /dev/null
-  else
-    log_info "Creating new mirror"
-    git clone --mirror "$repo_url" "$full_mirror_path"
-  fi
-  
-  echo "$full_mirror_path"
-}
-
 clone_repository() {
   local repo_url="$1"
   local checkout_ref="$2"
@@ -200,10 +161,6 @@ for i in "${!SSH_HOSTS[@]}"; do
   add_ssh_host "${SSH_HOSTS[$i]}" "${SSH_FINGERPRINTS[$i]}"
 done
 
-# Get global mirror settings
-GLOBAL_USE_MIRROR="${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_USE_MIRROR:-false}"
-GLOBAL_MIRROR_PATH="${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_MIRROR_PATH:-$HOME/.git-mirrors}"
-
 log_section ":git: Starting repository checkout"
 
 # Repository checkout loop
@@ -227,13 +184,9 @@ while true; do
   
   REPO_REF_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_REF"
   REPO_SSH_KEY_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_SSH_KEY_PATH"
-  REPO_USE_MIRROR_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_USE_MIRROR"
-  REPO_MIRROR_NAME_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_MIRROR_NAME"
   
   REPO_REF="${!REPO_REF_VAR:-}"
   REPO_SSH_KEY_PATH="${!REPO_SSH_KEY_VAR:-}"
-  REPO_USE_MIRROR="${!REPO_USE_MIRROR_VAR:-$GLOBAL_USE_MIRROR}"
-  REPO_MIRROR_NAME="${!REPO_MIRROR_NAME_VAR:-}"
   REPO_CLONE_FLAGS=()
   
   if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$BUILDKITE_BUILD_CHECKOUT_PATH" "$REPO_MIRROR_URL" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
