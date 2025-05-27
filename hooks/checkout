@@ -76,12 +76,6 @@ add_ssh_host() {
   fi
 }
 
-# Get repository name from URL
-get_repo_name() {
-  local repo_url="$1"
-  basename "${repo_url}" .git
-}
-
 clone_repository() {
   local repo_url="$1"
   local checkout_ref="$2"
