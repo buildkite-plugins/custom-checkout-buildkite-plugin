@@ -54,11 +54,12 @@ steps:
 
 Each repository in the `repos` list can have the following options:
 
-| Option | Required | Default | Description |
-|--------|----------|---------|-------------|
-| `url` | true | | Repository Git URL |
-| `ref` | false | | Branch, tag, or commit to checkout |
-| `clone_flags` | false | `[]` | Additional flags for git clone |
+| Option        | Required | Default | Description                                 |
+|---------------|----------|---------|---------------------------------------------|
+| `url`         | true     |         | Repository Git URL                          |
+| `mirror_url`  | false    |         | Optional mirror URL for faster/local clone  |
+| `ref`         | false    |         | Branch, tag, or commit to checkout          |
+| `clone_flags` | false    | `[]`    | Additional flags for git clone              |
 
 ## Examples
 
@@ -100,6 +101,21 @@ steps:
               ref: "main"
             - url: "https://github.com/org/repo2.git"
               ref: "dev"
+```
+
+### Clone with Mirror URL
+
+```yaml
+steps:
+  - label: "Checkout with mirror"
+    command: "buildkite-agent pipeline upload"
+    plugins:
+      - custom-checkout#v1.2.1:
+          skip_checkout: true
+          repos:
+            - url: "https://github.com/org/repo.git"
+              mirror_url: "https://git-mirror.local/org/repo.git"
+              ref: "main"
 ```
 
 ## Testing

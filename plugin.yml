@@ -29,6 +29,9 @@ configuration:
           url:
             type: string
             description: "Repository Git URL."
+          mirror_url:
+            type: string
+            description: "Optional mirror URL for faster or local cloning."
           ref:
             type: string
             description: "Branch, tag, or commit to checkout."
