@@ -54,12 +54,12 @@ steps:
 
 Each repository in the `repos` list can have the following options:
 
-| Option        | Required | Default | Description                                 |
-|---------------|----------|---------|---------------------------------------------|
-| `url`         | true     |         | Repository Git URL                          |
-| `mirror_url`  | false    |         | Optional mirror URL for faster/local clone  |
-| `ref`         | false    |         | Branch, tag, or commit to checkout          |
-| `clone_flags` | false    | `[]`    | Additional flags for git clone              |
+| Option        | Required | Default  | Description                                 |
+|---------------|----------|--------- |---------------------------------------------|
+| `url`         | true     |          | Repository Git URL                          |
+| `mirror_url`  | false    |          | Optional mirror URL for faster/local clone  |
+| `ref`         | false    |          | Branch, tag, or commit to checkout          |
+| `clone_flags` | false    | `["-v"]` | Additional flags for git clone              |
 
 ## Examples
 
