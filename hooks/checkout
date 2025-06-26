@@ -5,7 +5,7 @@ set -euo pipefail
 
 # Functions
 log_section() {
-  echo -e "\n🔷 --- $1"
+  echo -e "\n--- $1"
 }
 
 log_info() {
@@ -102,6 +102,7 @@ clone_repository() {
       git clone "${clone_flags[@]}" "$repo_url" .
     fi
   else
+    log_info "Clone flags: ${clone_flags[*]}"
     git clone "${clone_flags[@]}" "$repo_url" .
   fi
 
@@ -178,10 +179,26 @@ while true; do
   
   REPO_REF_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_REF"
   REPO_SSH_KEY_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_SSH_KEY_PATH"
-  
+
+  CLONE_FLAGS_COUNT=0
+  REPO_CLONE_FLAGS=()
+
+  REPO_CLONE_FLAGS_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_CLONE_FLAGS_${CLONE_FLAGS_COUNT}"
+  if [[ -z "${!REPO_CLONE_FLAGS_VAR:-}" ]]; then
+    REPO_CLONE_FLAGS=("-v")
+  fi
+
+  while true; do
+    REPO_CLONE_FLAGS_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_CLONE_FLAGS_${CLONE_FLAGS_COUNT}"
+    if [[ -z "${!REPO_CLONE_FLAGS_VAR:-}" ]]; then
+      break
+    fi
+    REPO_CLONE_FLAGS+=("${!REPO_CLONE_FLAGS_VAR}")
+    ((CLONE_FLAGS_COUNT++))
+  done
+
   REPO_REF="${!REPO_REF_VAR:-}"
   REPO_SSH_KEY_PATH="${!REPO_SSH_KEY_VAR:-}"
-  REPO_CLONE_FLAGS=()
   
   if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$BUILDKITE_BUILD_CHECKOUT_PATH" "$REPO_MIRROR_URL" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
     CLONE_SUCCESS=true
