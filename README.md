@@ -118,6 +118,16 @@ steps:
               ref: "main"
 ```
 
+## Compatibility
+
+| Elastic Stack | Agent Stack K8s | Hosted (Mac) | Hosted (Linux) | Notes |
+| :-----------: | :-------------: | :----: | :----: |:---- |
+| Custom Checkout | ✅ | ✅ | ✅ | ✅ | n/a |
+
+- ✅ Fully supported (all combinations of attributes have been tested to pass)
+- ⚠️ Partially supported (some combinations cause errors/issues)
+- ❌ Not supported
+
 ## Testing
 
 ```bash
