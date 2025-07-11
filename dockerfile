@@ -1,4 +1,4 @@
-FROM buildkite/plugin-tester:v4.1.1
+FROM buildkite/plugin-tester:v4.2.0
 
 # Install dependencies
 RUN apk update && \
