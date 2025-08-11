@@ -221,12 +221,6 @@ if [[ $REPOS_COUNT -eq 0 ]]; then
 fi
 
 if [[ "$CLONE_SUCCESS" == "true" ]]; then
-  if [[ -d ".git" ]]; then
-    if git rev-parse HEAD > /dev/null 2>&1; then
-      COMMIT=$(git rev-parse HEAD)
-      buildkite-agent meta-data set "buildkite:git:commit" "$COMMIT" || true
-    fi
-  fi
   log_info "All operations completed successfully"
   exit 0
 else
