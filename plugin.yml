@@ -35,6 +35,9 @@ configuration:
           ref:
             type: string
             description: "Branch, tag, or commit to checkout."
+          checkout_path:
+            type: string
+            description: "Directory where this repository will be cloned. Accepts relative paths (e.g., 'my-repo') for subdirectories, or absolute paths (e.g., '/tmp/checkout'). Defaults to the main directory if not specified, or relative if multiple repositories are configured."
           ssh_key_path:
             type: string
             description: "Path to SSH key for repository access."

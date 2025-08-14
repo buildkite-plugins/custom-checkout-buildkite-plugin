@@ -54,21 +54,21 @@ add_ssh_host() {
   # Check if host is already in known_hosts
   if ! grep -q "^$host" "$HOME/.ssh/known_hosts"; then
     log_info "$host not found in known_hosts"
-    
+
     # Get host key
     tmp_file=$(mktemp)
     ssh-keyscan -t rsa "$host" > "$tmp_file"
-    
+
     # Verify fingerprint
     local actual_fingerprint
     actual_fingerprint=$(ssh-keygen -lf "$tmp_file" | awk '{ print $2 }')
-    
+
     if [[ "$actual_fingerprint" != "$fingerprint" ]]; then
       log_error "Fingerprint mismatch for $host. Expected $fingerprint, got $actual_fingerprint."
       rm "$tmp_file"
       exit 1
     fi
-    
+
     # Add to known_hosts
     cat "$tmp_file" >> "$HOME/.ssh/known_hosts"
     rm "$tmp_file"
@@ -131,7 +131,7 @@ log_section ":open_file_folder: Setting up workspace"
 # Check for skip checkout
 if [[ "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT:-false}" == "true" ]]; then
   log_warning "🚫 Skipping default checkout as per configuration."
-  
+
   # If we're just skipping checkout and no repos are specified, exit successfully
   if [[ -z "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0:-}" && -z "${BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL:-}" ]]; then
     log_info "📝 No repositories configured for checkout, skipping repository checkout"
@@ -165,20 +165,21 @@ CLONE_SUCCESS=false
 while true; do
   REPO_URL_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_URL"
   REPO_MIRROR_URL_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_MIRROR_URL"
-  
+
   if [[ -z "${!REPO_URL_VAR:-}" ]]; then
     REPO_URL_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}"
     if [[ -z "${!REPO_URL_VAR:-}" ]]; then
       break
     fi
   fi
-  
+
   REPO_URL="${!REPO_URL_VAR}"
   REPO_MIRROR_URL="${!REPO_MIRROR_URL_VAR:-}"
   log_info "Processing repository $REPOS_COUNT: $REPO_URL"
-  
+
   REPO_REF_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_REF"
   REPO_SSH_KEY_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_SSH_KEY_PATH"
+  REPO_CHECKOUT_PATH_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_CHECKOUT_PATH"
 
   CLONE_FLAGS_COUNT=0
   REPO_CLONE_FLAGS=()
@@ -199,8 +200,34 @@ while true; do
 
   REPO_REF="${!REPO_REF_VAR:-}"
   REPO_SSH_KEY_PATH="${!REPO_SSH_KEY_VAR:-}"
-  
-  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$BUILDKITE_BUILD_CHECKOUT_PATH" "$REPO_MIRROR_URL" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
+  REPO_CHECKOUT_PATH="${!REPO_CHECKOUT_PATH_VAR:-}"
+
+  # Determine the checkout directory for this repository
+  if [[ -n "$REPO_CHECKOUT_PATH" ]]; then
+    if [[ "$REPO_CHECKOUT_PATH" = /* ]]; then
+      REPO_CLONE_DIR="$REPO_CHECKOUT_PATH"
+    else
+      REPO_CLONE_DIR="$BUILDKITE_BUILD_CHECKOUT_PATH/$REPO_CHECKOUT_PATH"
+    fi
+  else
+    REPO_NAME=$(basename "$REPO_URL" .git)
+
+    # Check if we have multiple repos
+    NEXT_REPO_URL_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_$((REPOS_COUNT + 1))_URL"
+    if [[ -z "${!NEXT_REPO_URL_VAR:-}" ]]; then
+      NEXT_REPO_URL_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_$((REPOS_COUNT + 1))"
+    fi
+
+    if [[ $REPOS_COUNT -eq 0 && -z "${!NEXT_REPO_URL_VAR:-}" ]]; then
+      # Single repository, clone to .
+      REPO_CLONE_DIR="$BUILDKITE_BUILD_CHECKOUT_PATH"
+    else
+      # Multiple repositories, clone to ./repo
+      REPO_CLONE_DIR="$BUILDKITE_BUILD_CHECKOUT_PATH/$REPO_NAME"
+    fi
+  fi
+
+  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$REPO_CLONE_DIR" "$REPO_MIRROR_URL" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
     CLONE_SUCCESS=true
     log_success "Successfully cloned repository $REPO_URL"
   else

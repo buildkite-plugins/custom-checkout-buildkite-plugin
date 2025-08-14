@@ -60,6 +60,7 @@ Each repository in the `repos` list can have the following options:
 | `mirror_url`  | false    |          | Optional mirror URL for faster/local clone  |
 | `ref`         | false    |          | Branch, tag, or commit to checkout          |
 | `clone_flags` | false    | `["-v"]` | Additional flags for git clone              |
+| `checkout_path` | false  |          | Custom directory path for this repository  |
 
 ## Examples
 
@@ -101,6 +102,24 @@ steps:
               ref: "main"
             - url: "https://github.com/org/repo2.git"
               ref: "dev"
+```
+
+### Custom Checkout Paths
+
+```yaml
+steps:
+  - label: "Custom paths"
+    command: "./script.sh"
+    plugins:
+      - custom-checkout#v1.3.0:
+          skip_checkout: true
+          repos:
+            - url: "https://github.com/org/repo1.git"
+              ref: "main"
+              checkout_path: "/tmp/repo1"
+            - url: "https://github.com/org/repo2.git"
+              ref: "dev"
+              checkout_path: "repo2"
 ```
 
 ### Clone with Mirror URL
