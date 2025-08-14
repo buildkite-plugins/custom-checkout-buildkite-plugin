@@ -9,10 +9,10 @@ setup_environment() {
   export BUILDKITE_COMMIT="HEAD"
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_CHECKOUT_PATH=""
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_INTERPOLATE_CHECKOUT_PATH=""
-  
+
   # Ensure the plugin directory is set correctly
   export BUILDKITE_PLUGIN_DIR="${BUILDKITE_PLUGIN_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-  
+
   # Create checkout directory
   mkdir -p "$BUILDKITE_BUILD_CHECKOUT_PATH"
 
@@ -24,7 +24,7 @@ cleanup_environment() {
   if [[ -n "${BUILDKITE_BUILD_CHECKOUT_PATH:-}" ]] && [[ -d "$BUILDKITE_BUILD_CHECKOUT_PATH" ]]; then
     rm -rf "$BUILDKITE_BUILD_CHECKOUT_PATH"
   fi
-  
+
   # Unset all plugin variables
   unset BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_CHECKOUT_PATH
   unset BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_INTERPOLATE_CHECKOUT_PATH
@@ -97,4 +97,22 @@ exit 0
 EOF
 
   chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
+
+# Mocking SSH-Keyscan for bats as no stub available
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/ssh-keyscan" <<'EOF'
+echo "[mock ssh-keyscan] $@" >&2
+# Output a mock host key for github.com
+echo "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk="
+exit 0
+EOF
+
+  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/ssh-keyscan"
+
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/ssh-keygen" <<'EOF'
+echo "[mock ssh-keygen] $@" >&2
+echo "256 SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s github.com (RSA)"
+exit 0
+EOF
+
+  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/ssh-keygen"
 }

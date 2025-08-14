@@ -119,3 +119,46 @@ teardown() {
   [ "$status" -eq 0 ]
   [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/.git" ]
 }
+
+@test "Clone multiple repositories into separate directories" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo1.git"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_1_URL="https://github.com/example/repo2.git"
+
+  git() {
+    if [[ "$1" == "clone" ]]; then
+      local repo_url="$2"
+      mkdir -p .git
+      echo "Cloned $repo_url into $(pwd)" > .git/clone_info
+      return 0
+    else
+      command git "$@"
+    fi
+  }
+
+  run run_plugin_hook "checkout"
+
+  [ "$status" -eq 0 ]
+  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git" ]
+  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/repo2/.git" ]
+}
+
+@test "Clone repository with custom checkout path" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_CHECKOUT_PATH="custom-dir"
+
+  git() {
+    if [[ "$1" == "clone" ]]; then
+      mkdir -p .git
+      return 0
+    else
+      command git "$@"
+    fi
+  }
+
+  run run_plugin_hook "checkout"
+
+  [ "$status" -eq 0 ]
+  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/custom-dir/.git" ]
+}
