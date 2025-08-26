@@ -99,25 +99,25 @@ clone_repository() {
       git remote set-url origin "$repo_url"
     else
       log_warning "Mirror clone failed, falling back to original URL: $repo_url"
-      git clone "${clone_flags[@]}" "$repo_url" .
+      git clone "${clone_flags[@]}" "$repo_url" . || return 1
     fi
   else
     log_info "Clone flags: ${clone_flags[*]}"
-    git clone "${clone_flags[@]}" "$repo_url" .
+    git clone "${clone_flags[@]}" "$repo_url" . || return 1
   fi
 
   if [[ -n "$checkout_ref" ]]; then
     log_info "Checking out ref: $checkout_ref"
-    git checkout "$checkout_ref"
+    git checkout "$checkout_ref" || return 1
   elif [[ -n "${BUILDKITE_COMMIT:-}" ]]; then
     log_info "Checking out commit: $BUILDKITE_COMMIT"
-    git checkout "$BUILDKITE_COMMIT"
+    git checkout "$BUILDKITE_COMMIT" || return 1
   fi
 
   if command -v git-lfs > /dev/null; then
     log_info "Setting up Git LFS"
-    git lfs install
-    git lfs pull
+    git lfs install || return 1
+    git lfs pull || return 1
   fi
 
   popd > /dev/null
