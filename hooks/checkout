@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# Load plugin library
+# shellcheck source=lib/plugin.bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/plugin.bash"
+
 # Keep the existing settings
 set -euo pipefail
 
@@ -57,7 +61,7 @@ add_ssh_host() {
 
     # Get host key
     tmp_file=$(mktemp)
-    ssh-keyscan -t rsa "$host" > "$tmp_file"
+    retry 5 ssh-keyscan -t rsa "$host" > "$tmp_file"
 
     # Verify fingerprint
     local actual_fingerprint
