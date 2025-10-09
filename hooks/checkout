@@ -39,10 +39,12 @@ add_ssh_host() {
     log_info "$host not found in known_hosts"
 
     # Get host key
+    log_info "Getting host key for $host"
     tmp_file=$(mktemp)
     retry 5 ssh-keyscan -t rsa "$host" > "$tmp_file"
 
     # Verify fingerprint
+    log_info "Verifying fingerprint for $host"
     local actual_fingerprint
     actual_fingerprint=$(ssh-keygen -lf "$tmp_file" | awk '{ print $2 }')
 
