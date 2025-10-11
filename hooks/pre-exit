@@ -2,15 +2,9 @@
 
 set -euo pipefail
 
-# Functions
-
-log_info() {
-  echo -e "INFO: $1"
-}
-
-log_error() {
-  echo -e "ERROR: $1" >&2
-}
+# Load plugin library
+# shellcheck source=lib/plugin.bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/plugin.bash"
 
 # Main Execution
 

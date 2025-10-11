@@ -147,10 +147,18 @@ steps:
 - ⚠️ Partially supported (some combinations cause errors/issues)
 - ❌ Not supported
 
-## Testing
+## Developing
+
+Run all tests:
 
 ```bash
-docker-compose run --rm tests
+docker compose run --rm tests
+```
+
+Run linter:
+
+```bash
+docker compose run --rm lint
 ```
 
 ## Contributing

@@ -1,10 +1,11 @@
-version: "3.5"
-
 services:
   tests:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: buildkite/plugin-tester:v4.2.0
     volumes:
       - ".:/plugin"
-    command: ["bats", "tests/"]
+
+  lint:
+    image: buildkite/plugin-linter:v2.1.0
+    command: ['--id', 'custom-checkout']
+    volumes:
+      - ".:/plugin:ro"
