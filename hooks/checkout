@@ -41,7 +41,12 @@ add_ssh_host() {
     # Get host key
     log_info "Getting host key for $host"
     tmp_file=$(mktemp)
-    retry 5 ssh-keyscan -t rsa "$host" > "$tmp_file"
+    if retry 5 ssh-keyscan -t rsa "$host" > "$tmp_file"; then
+        log_success "Got host key for $host"
+    else
+        log_error "Failed to get host key for $host"
+        exit 1
+    fi
 
     # Verify fingerprint
     log_info "Verifying fingerprint for $host"
