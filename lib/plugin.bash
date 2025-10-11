@@ -69,14 +69,14 @@ function retry {
 
   until "$@"; do
     status=$?
-    echo "Exited with $status"
+    echo "Exited with $status" >&2
     if (( retries == "0" )); then
       return $status
     elif (( attempts == retries )); then
-      echo "Failed $attempts retries"
+      echo "Failed $attempts retries" >&2
       return $status
     else
-      echo "Retrying $((retries - attempts)) more times..."
+      echo "Retrying $((retries - attempts)) more times..." >&2
       attempts=$((attempts + 1))
       sleep $(((attempts - 2) * 2))
     fi
