@@ -1,28 +1,11 @@
 #!/usr/bin/env bash
 
+# Load plugin library
+# shellcheck source=lib/plugin.bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/plugin.bash"
+
 # Keep the existing settings
 set -euo pipefail
-
-# Functions
-log_section() {
-  echo -e "\n--- $1"
-}
-
-log_info() {
-  echo -e "\033[36mℹ️  INFO:\033[0m $1"
-}
-
-log_success() {
-  echo -e "\033[32m✅ SUCCESS:\033[0m $1"
-}
-
-log_warning() {
-  echo -e "\033[33m⚠️  WARNING:\033[0m $1"
-}
-
-log_error() {
-  echo -e "\033[31m❌ ERROR:\033[0m $1" >&2
-}
 
 check_required_env() {
   if [[ -z "${!1:-}" ]]; then
@@ -56,10 +39,17 @@ add_ssh_host() {
     log_info "$host not found in known_hosts"
 
     # Get host key
+    log_info "Getting host key for $host"
     tmp_file=$(mktemp)
-    ssh-keyscan -t rsa "$host" > "$tmp_file"
+    if retry 5 ssh-keyscan -t rsa "$host" > "$tmp_file"; then
+        log_success "Got host key for $host"
+    else
+        log_error "Failed to get host key for $host"
+        exit 1
+    fi
 
     # Verify fingerprint
+    log_info "Verifying fingerprint for $host"
     local actual_fingerprint
     actual_fingerprint=$(ssh-keygen -lf "$tmp_file" | awk '{ print $2 }')
 

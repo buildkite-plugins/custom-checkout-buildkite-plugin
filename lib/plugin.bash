@@ -60,3 +60,47 @@ function plugin_read_config() {
   local default="${2:-}"
   echo "${!var:-$default}"
 }
+
+# retry <number-of-retries> <command>
+function retry {
+  local retries=$1; shift
+  local attempts=1
+  local status=0
+
+  until "$@"; do
+    status=$?
+    echo "Exited with $status" >&2
+    if (( retries == "0" )); then
+      return $status
+    elif (( attempts == retries )); then
+      echo "Failed $attempts retries" >&2
+      return $status
+    else
+      echo "Retrying $((retries - attempts)) more times..." >&2
+      attempts=$((attempts + 1))
+      sleep $(((attempts - 2) * 2))
+    fi
+  done
+}
+
+# Logging functions
+
+function log_section() {
+  echo -e "\n--- $1"
+}
+
+function log_info() {
+  echo -e "\033[36mℹ️  INFO:\033[0m $1"
+}
+
+function log_success() {
+  echo -e "\033[32m✅ SUCCESS:\033[0m $1"
+}
+
+function log_warning() {
+  echo -e "\033[33m⚠️  WARNING:\033[0m $1"
+}
+
+function log_error() {
+  echo -e "\033[31m❌ ERROR:\033[0m $1" >&2
+}
