@@ -6,16 +6,6 @@ set -euo pipefail
 # shellcheck source=lib/plugin.bash
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/plugin.bash"
 
-# Functions
-
-log_section() {
-  echo -e "\n--- $1"
-}
-
-log_info() {
-  echo -e "INFO: $1"
-}
-
 # Main Execution
 
 log_section ":house_with_garden: Setting up environment"
