@@ -67,17 +67,6 @@ source_plugin_hook() {
   source "$hook_path" "$@"
 }
 
-mock_git() {
-  if [[ "$1" == "clone" ]]; then
-    mkdir -p .git
-    return 0
-  elif [[ "$1" == "fetch" || "$1" == "checkout" ]]; then
-    return 0
-  else
-    command git "$@"
-  fi
-}
-
 mock_git_commands() {
   export PATH="$BUILDKITE_BUILD_CHECKOUT_PATH/bin:$PATH"
   mkdir -p "$BUILDKITE_BUILD_CHECKOUT_PATH/bin"
