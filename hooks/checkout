@@ -66,6 +66,23 @@ add_ssh_host() {
   fi
 }
 
+fetch_commit() {
+  local clone_dir="$1"
+  local fetch_target="$2"
+  local fetch_flags=("${@:3}")
+
+  pushd "$clone_dir" > /dev/null
+
+  log_info "Fetching $fetch_target"
+  [[ ${#fetch_flags[@]} -gt 0 ]] && log_info "Using flags: ${fetch_flags[*]}"
+
+  git fetch origin "${fetch_flags[@]+"${fetch_flags[@]}"}" "$fetch_target" || return 1
+
+  log_success "Fetch completed successfully"
+
+  popd > /dev/null
+}
+
 clone_repository() {
   local repo_url="$1"
   local checkout_ref="$2"
