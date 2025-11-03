@@ -162,3 +162,60 @@ teardown() {
   [ "$status" -eq 0 ]
   [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/custom-dir/.git" ]
 }
+
+@test "Fetch when enabled" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_FETCH="true"
+  export BUILDKITE_COMMIT="abc123"
+
+  fetch_called=0
+  git() {
+    [[ "$1" == "fetch" ]] && fetch_called=1
+    mock_git "$@"
+  }
+
+  run run_plugin_hook "checkout"
+
+  [ "$status" -eq 0 ]
+  [ "$fetch_called" -eq 1 ]
+}
+
+@test "Skip fetch when fetch is disabled" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_COMMIT="abc123"
+
+  fetch_called=0
+  git() {
+    [[ "$1" == "fetch" ]] && fetch_called=1
+    mock_git "$@"
+  }
+
+  run run_plugin_hook "checkout"
+
+  [ "$status" -eq 0 ]
+  [ "$fetch_called" -eq 0 ]
+}
+
+@test "Fetch with custom flags" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_FETCH="true"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_FETCH_FLAGS_0="--depth=1"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_FETCH_FLAGS_1="--prune"
+  export BUILDKITE_COMMIT="abc123"
+
+  fetch_flags_correct=0
+  git() {
+    if [[ "$1" == "fetch" && "$*" =~ "--depth=1" && "$*" =~ "--prune" ]]; then
+      fetch_flags_correct=1
+    fi
+    mock_git "$@"
+  }
+
+  run run_plugin_hook "checkout"
+
+  [ "$status" -eq 0 ]
+  [ "$fetch_flags_correct" -eq 1 ]
+}
