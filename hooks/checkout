@@ -113,6 +113,17 @@ clone_repository() {
     git clone "${clone_flags[@]}" "$repo_url" . || return 1
   fi
 
+  popd > /dev/null
+
+  log_info "Repository cloned successfully"
+}
+
+checkout_ref() {
+  local clone_dir="$1"
+  local checkout_ref="$2"
+
+  pushd "$clone_dir" > /dev/null
+
   if [[ -n "$checkout_ref" ]]; then
     log_info "Checking out ref: $checkout_ref"
     git checkout "$checkout_ref" || return 1
@@ -128,8 +139,8 @@ clone_repository() {
   fi
 
   popd > /dev/null
-  log_info "Repository cloned successfully"
-  return 0
+
+  log_success "Checkout completed successfully"
 }
 
 # Main execution
@@ -187,6 +198,7 @@ while true; do
   REPO_REF_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_REF"
   REPO_SSH_KEY_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_SSH_KEY_PATH"
   REPO_CHECKOUT_PATH_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_CHECKOUT_PATH"
+  REPO_FETCH_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_FETCH"
 
   CLONE_FLAGS_COUNT=0
   REPO_CLONE_FLAGS=()
@@ -205,9 +217,22 @@ while true; do
     ((CLONE_FLAGS_COUNT++))
   done
 
+  FETCH_FLAGS_COUNT=0
+  REPO_FETCH_FLAGS=()
+
+  while true; do
+    REPO_FETCH_FLAGS_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_FETCH_FLAGS_${FETCH_FLAGS_COUNT}"
+    if [[ -z "${!REPO_FETCH_FLAGS_VAR:-}" ]]; then
+      break
+    fi
+    REPO_FETCH_FLAGS+=("${!REPO_FETCH_FLAGS_VAR}")
+    ((FETCH_FLAGS_COUNT++))
+  done
+
   REPO_REF="${!REPO_REF_VAR:-}"
   REPO_SSH_KEY_PATH="${!REPO_SSH_KEY_VAR:-}"
   REPO_CHECKOUT_PATH="${!REPO_CHECKOUT_PATH_VAR:-}"
+  REPO_FETCH="${!REPO_FETCH_VAR:-false}"
 
   # Determine the checkout directory for this repository
   if [[ -n "$REPO_CHECKOUT_PATH" ]]; then
@@ -241,6 +266,26 @@ while true; do
     log_error "Failed to clone repository $REPO_URL"
     exit 1
   fi
+
+  if [[ "$REPO_FETCH" == "true" ]]; then
+    FETCH_TARGET="${REPO_REF:-${BUILDKITE_COMMIT:-}}"
+    if [[ -n "$FETCH_TARGET" ]]; then
+      if ! fetch_commit "$REPO_CLONE_DIR" "$FETCH_TARGET" "${REPO_FETCH_FLAGS[@]+"${REPO_FETCH_FLAGS[@]}"}"; then
+        log_error "Failed to fetch for repository $REPO_URL"
+        exit 1
+      fi
+    else
+      log_warning "Fetch enabled but no ref or commit specified, skipping fetch for $REPO_URL"
+    fi
+  fi
+
+  if ! checkout_ref "$REPO_CLONE_DIR" "$REPO_REF"; then
+    log_error "Failed to checkout ref for repository $REPO_URL"
+    exit 1
+  fi
+
+  CLONE_SUCCESS=true
+  log_success "Successfully processed repository $REPO_URL"
 
   ((REPOS_COUNT++))
 done || true
