@@ -88,8 +88,14 @@ if [[ "$1" == "clone" ]]; then
   exit 0
 fi
 
-# Simulate fetch, checkout, remote, lfs
-if [[ "$1" == "fetch" || "$1" == "checkout" || "$1" == "remote" || "$1" == "lfs" ]]; then
+# Trackable fetch calls that can be read in tests, catching the command and reading it is as expected
+if [[ "$1" == "fetch" ]]; then
+  echo "$@" > ".git/fetch_called"
+  exit 0
+fi
+
+# Simulate checkout, remote, lfs
+if [[ "$1" == "checkout" || "$1" == "remote" || "$1" == "lfs" ]]; then
   exit 0
 fi
 
