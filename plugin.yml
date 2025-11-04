@@ -46,6 +46,15 @@ configuration:
             items:
               type: string
             description: "Additional flags for git clone."
+          fetch:
+            type: boolean
+            default: false
+            description: "Performs a git fetch operation after clone and before checkout. Useful for shallow clones when fetching specific commits."
+          fetch_flags:
+            type: array
+            items:
+              type: string
+            description: "Additional flags for git fetch command (e.g., '--depth=1'). Only used when fetch is enabled."
         required:
           - url
   additionalProperties: false
