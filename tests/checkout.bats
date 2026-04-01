@@ -191,3 +191,124 @@ teardown() {
   grep -q -- "--depth=1" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called"
   grep -q -- "--prune" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called"
 }
+
+@test "Reuses existing repository on persistent agent instead of re-cloning" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+
+  # Simulate a pre-existing repository from a previous build (persistent agent scenario)
+  mkdir -p "$BUILDKITE_BUILD_CHECKOUT_PATH/.git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  # Verify fetch --all --prune was called (update path), not a fresh clone
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called" ]
+  grep -q -- "--all" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called"
+  grep -q -- "--prune" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called"
+}
+
+@test "Checks out correct ref on persistent agent after fetching updates" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_REF="main"
+
+  # Simulate a pre-existing repository
+  mkdir -p "$BUILDKITE_BUILD_CHECKOUT_PATH/.git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  # fetch --all --prune was called (update path taken)
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called" ]
+  grep -q -- "--all" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called"
+
+  # checkout_ref still ran and checked out the specified ref
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called" ]
+  grep -q "main" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called"
+}
+
+@test "Updates remote URL when reusing existing repository on persistent agent" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/new-location/repo.git"
+
+  # Simulate a pre-existing repository (may have had a different remote URL)
+  mkdir -p "$BUILDKITE_BUILD_CHECKOUT_PATH/.git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  # remote set-url was called with the current (possibly new) URL
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/remote_seturl_called" ]
+  grep -q "https://github.com/example/new-location/repo.git" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/remote_seturl_called"
+}
+
+@test "Resets working tree to clean state before checkout" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  # git reset --hard HEAD was called to discard any leftover changes
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/reset_called" ]
+  grep -q -- "--hard" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/reset_called"
+
+  # git clean -ffdx was called to remove untracked files
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clean_called" ]
+  grep -q -- "-ffdx" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clean_called"
+}
+
+@test "Reuses all existing repositories on persistent agent with multiple repos" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo1.git"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_1_URL="https://github.com/example/repo2.git"
+
+  # Both repos already exist from a previous build
+  mkdir -p "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git"
+  mkdir -p "$BUILDKITE_BUILD_CHECKOUT_PATH/repo2/.git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  # Both repos were updated via fetch, not re-cloned
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git/fetch_called" ]
+  grep -q -- "--all" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git/fetch_called"
+
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/repo2/.git/fetch_called" ]
+  grep -q -- "--all" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo2/.git/fetch_called"
+}
+
+@test "Fails the build when fetch fails during persistent agent repo update" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+
+  # Simulate a pre-existing repository
+  mkdir -p "$BUILDKITE_BUILD_CHECKOUT_PATH/.git"
+
+  # Override the mock to fail on fetch so we can verify error propagation
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+#!/usr/bin/env bash
+if [[ "$1" == "fetch" ]]; then
+  echo "[mock git] fetch failed: network unreachable" >&2
+  exit 1
+fi
+exit 0
+GITEOF
+  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 1 ]
+}

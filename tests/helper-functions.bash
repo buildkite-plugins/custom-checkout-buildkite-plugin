@@ -88,14 +88,40 @@ if [[ "$1" == "clone" ]]; then
   exit 0
 fi
 
-# Trackable fetch calls that can be read in tests, catching the command and reading it is as expected
+# Trackable fetch calls that can be read in tests
 if [[ "$1" == "fetch" ]]; then
   echo "$@" > ".git/fetch_called"
   exit 0
 fi
 
-# Simulate checkout, remote, lfs
-if [[ "$1" == "checkout" || "$1" == "remote" || "$1" == "lfs" ]]; then
+# Track checkout calls (records the ref that was checked out)
+if [[ "$1" == "checkout" ]]; then
+  echo "$@" > ".git/checkout_called"
+  exit 0
+fi
+
+# Track remote set-url calls (records the new URL)
+if [[ "$1" == "remote" ]]; then
+  if [[ "$2" == "set-url" ]]; then
+    echo "$@" > ".git/remote_seturl_called"
+  fi
+  exit 0
+fi
+
+# Track reset calls
+if [[ "$1" == "reset" ]]; then
+  echo "$@" > ".git/reset_called"
+  exit 0
+fi
+
+# Track clean calls
+if [[ "$1" == "clean" ]]; then
+  echo "$@" > ".git/clean_called"
+  exit 0
+fi
+
+# Simulate lfs
+if [[ "$1" == "lfs" ]]; then
   exit 0
 fi
 

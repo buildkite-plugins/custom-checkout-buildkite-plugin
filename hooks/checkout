@@ -91,13 +91,23 @@ clone_repository() {
   local mirror_url="${5:-}"
   local clone_flags=("${@:6}")
 
-  log_info "Cloning repository into '$clone_dir'"
-  mkdir -p "$clone_dir"
-  pushd "$clone_dir" > /dev/null
-
   if [[ -n "$ssh_key_path" ]]; then
     export GIT_SSH_COMMAND="ssh -i $ssh_key_path -o IdentitiesOnly=yes"
   fi
+
+  if [[ -e "$clone_dir/.git" ]]; then
+    log_info "Existing repository found at '$clone_dir', updating instead of re-cloning"
+    pushd "$clone_dir" > /dev/null
+    git remote set-url origin "$repo_url" || return 1
+    git fetch --all --prune || return 1
+    popd > /dev/null
+    log_success "Repository updated at '$clone_dir'"
+    return 0
+  fi
+
+  log_info "Cloning repository into '$clone_dir'"
+  mkdir -p "$clone_dir"
+  pushd "$clone_dir" > /dev/null
 
   if [[ -n "$mirror_url" ]]; then
     log_info "Trying to clone from mirror: $mirror_url"
@@ -123,6 +133,10 @@ checkout_ref() {
   local checkout_ref="$2"
 
   pushd "$clone_dir" > /dev/null
+
+  log_info "Resetting working tree to clean state"
+  git reset --hard HEAD || return 1
+  git clean -ffdx || return 1
 
   if [[ -n "$checkout_ref" ]]; then
     log_info "Checking out ref: $checkout_ref"
