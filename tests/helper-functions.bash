@@ -90,7 +90,7 @@ fi
 
 # Trackable fetch calls that can be read in tests
 if [[ "$1" == "fetch" ]]; then
-  echo "$@" > ".git/fetch_called"
+  echo "$@" >> ".git/fetch_called"
   exit 0
 fi
 

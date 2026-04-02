@@ -289,6 +289,175 @@ teardown() {
   grep -q -- "--all" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo2/.git/fetch_called"
 }
 
+@test "Fetches merge ref and checks out FETCH_HEAD when merge refspec is enabled" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC="true"
+  export BUILDKITE_PULL_REQUEST="42"
+  export BUILDKITE_REPO="https://github.com/example/repo.git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called" ]
+  grep -q "refs/pull/42/merge" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called"
+
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called" ]
+  grep -q "FETCH_HEAD" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called"
+}
+
+@test "Merge refspec is ignored when BUILDKITE_PULL_REQUEST is false" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC="true"
+  export BUILDKITE_PULL_REQUEST="false"
+  export BUILDKITE_REPO="https://github.com/example/repo.git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called" ]
+  ! grep -q "FETCH_HEAD" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called"
+}
+
+@test "Merge refspec is ignored when flag is not set" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PULL_REQUEST="42"
+  export BUILDKITE_REPO="https://github.com/example/repo.git"
+  unset BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called" ]
+  ! grep -q "FETCH_HEAD" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called"
+}
+
+@test "Explicit ref takes precedence over merge refspec" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_REF="main"
+  export BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC="true"
+  export BUILDKITE_PULL_REQUEST="42"
+  export BUILDKITE_REPO="https://github.com/example/repo.git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called" ]
+  grep -q "main" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called"
+  ! grep -q "FETCH_HEAD" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called"
+}
+
+@test "Merge refspec only applies to the repo matching BUILDKITE_REPO" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo1.git"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_1_URL="https://github.com/example/repo2.git"
+  export BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC="true"
+  export BUILDKITE_PULL_REQUEST="42"
+  export BUILDKITE_REPO="https://github.com/example/repo1.git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  # repo1 should use merge refspec
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git/fetch_called" ]
+  grep -q "refs/pull/42/merge" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git/fetch_called"
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git/checkout_called" ]
+  grep -q "FETCH_HEAD" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git/checkout_called"
+
+  # repo2 should not use merge refspec
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/repo2/.git/checkout_called" ]
+  ! grep -q "FETCH_HEAD" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo2/.git/checkout_called"
+}
+
+@test "Merge refspec works on persistent agent with existing repo" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC="true"
+  export BUILDKITE_PULL_REQUEST="42"
+  export BUILDKITE_REPO="https://github.com/example/repo.git"
+
+  # Simulate pre-existing repository (persistent agent)
+  mkdir -p "$BUILDKITE_BUILD_CHECKOUT_PATH/.git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called" ]
+  grep -q -- "--all" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called"
+  grep -q "refs/pull/42/merge" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called"
+
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called" ]
+  grep -q "FETCH_HEAD" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called"
+}
+
+@test "Merge refspec works with SSH BUILDKITE_REPO matching HTTPS plugin URL" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC="true"
+  export BUILDKITE_PULL_REQUEST="42"
+  export BUILDKITE_REPO="git@github.com:example/repo.git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called" ]
+  grep -q "refs/pull/42/merge" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/fetch_called"
+
+  [ -f "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called" ]
+  grep -q "FETCH_HEAD" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/checkout_called"
+}
+
+@test "Merge refspec fetch failure aborts the build" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC="true"
+  export BUILDKITE_PULL_REQUEST="42"
+  export BUILDKITE_REPO="https://github.com/example/repo.git"
+
+  # Override mock to fail only on merge ref fetch
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+#!/usr/bin/env bash
+if [[ "$1" == "clone" ]]; then
+  mkdir -p ".git"
+  exit 0
+fi
+if [[ "$1" == "reset" ]]; then
+  exit 0
+fi
+if [[ "$1" == "clean" ]]; then
+  exit 0
+fi
+if [[ "$1" == "fetch" && "$*" == *"refs/pull"* ]]; then
+  echo "[mock git] merge ref fetch failed" >&2
+  exit 1
+fi
+exit 0
+GITEOF
+  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 1 ]
+}
+
 @test "Fails the build when fetch fails during persistent agent repo update" {
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"

@@ -159,6 +159,19 @@ steps:
                 - "--depth=1"
 ```
 
+### Pull Request Merge Refspec
+
+When `BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC` is enabled in your pipeline, the plugin automatically fetches and checks out GitHub's pre-computed merge commit (`refs/pull/N/merge`) instead of the PR head commit. This tests the result of merging the PR into its target branch.
+
+This activates when all of the following are true:
+
+- `BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC` is `true`
+- The build is for a pull request (`BUILDKITE_PULL_REQUEST` is a number)
+- The repository URL matches `BUILDKITE_REPO`
+- No explicit `ref` is configured for the repository
+
+When using multiple repositories, merge refspec only applies to the repository that triggered the build. An explicit `ref` always takes precedence.
+
 ## Compatibility
 
 | Elastic Stack | Agent Stack K8s | Hosted (Mac) | Hosted (Linux) | Notes |
