@@ -66,6 +66,31 @@ add_ssh_host() {
   fi
 }
 
+normalize_repo_url() {
+  local url="$1"
+  url="${url%.git}"
+  url="${url#https://}"
+  url="${url#http://}"
+  url="${url#git@}"
+  url="${url/:/\/}"
+  echo "$url" | tr '[:upper:]' '[:lower:]'
+}
+
+should_use_merge_refspec() {
+  local repo_url="$1"
+  local repo_ref="$2"
+
+  [[ "${BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC:-false}" == "true" ]] || return 1
+  [[ -n "${BUILDKITE_PULL_REQUEST:-}" && "${BUILDKITE_PULL_REQUEST}" != "false" ]] || return 1
+  [[ -z "$repo_ref" ]] || return 1
+
+  if [[ -n "${BUILDKITE_REPO:-}" ]]; then
+    [[ "$(normalize_repo_url "$repo_url")" == "$(normalize_repo_url "$BUILDKITE_REPO")" ]] || return 1
+  fi
+
+  return 0
+}
+
 fetch_commit() {
   local clone_dir="$1"
   local fetch_target="$2"
@@ -293,7 +318,18 @@ while true; do
     fi
   fi
 
-  if ! checkout_ref "$REPO_CLONE_DIR" "$REPO_REF"; then
+  # Fetch merge ref after any user-configured fetch so FETCH_HEAD points to the merge commit
+  if should_use_merge_refspec "$REPO_URL" "$REPO_REF"; then
+    if ! fetch_commit "$REPO_CLONE_DIR" "refs/pull/${BUILDKITE_PULL_REQUEST}/merge"; then
+      log_error "Failed to fetch merge ref for PR #${BUILDKITE_PULL_REQUEST}"
+      exit 1
+    fi
+    CHECKOUT_TARGET="FETCH_HEAD"
+  else
+    CHECKOUT_TARGET="$REPO_REF"
+  fi
+
+  if ! checkout_ref "$REPO_CLONE_DIR" "$CHECKOUT_TARGET"; then
     log_error "Failed to checkout ref for repository $REPO_URL"
     exit 1
   fi
