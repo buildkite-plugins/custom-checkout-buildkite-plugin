@@ -320,10 +320,12 @@ while true; do
 
   # Fetch merge ref after any user-configured fetch so FETCH_HEAD points to the merge commit
   if should_use_merge_refspec "$REPO_URL" "$REPO_REF"; then
+    log_info "Merge refspec enabled for PR #${BUILDKITE_PULL_REQUEST}, fetching refs/pull/${BUILDKITE_PULL_REQUEST}/merge"
     if ! fetch_commit "$REPO_CLONE_DIR" "refs/pull/${BUILDKITE_PULL_REQUEST}/merge"; then
       log_error "Failed to fetch merge ref for PR #${BUILDKITE_PULL_REQUEST}"
       exit 1
     fi
+    log_info "Checking out merge commit (FETCH_HEAD) instead of PR head"
     CHECKOUT_TARGET="FETCH_HEAD"
   else
     CHECKOUT_TARGET="$REPO_REF"
