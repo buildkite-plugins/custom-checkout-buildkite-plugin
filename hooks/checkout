@@ -7,6 +7,10 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/plugin.bash"
 # Keep the existing settings
 set -euo pipefail
 
+# Attempts for git operations that hit the remote, which can fail transiently
+# (e.g. GitHub briefly answering "Repository not found" for a repo that exists).
+GIT_NETWORK_ATTEMPTS=3
+
 check_required_env() {
   if [[ -z "${!1:-}" ]]; then
     log_error "Required environment variable $1 is not set"
@@ -101,7 +105,7 @@ fetch_commit() {
   log_info "Fetching $fetch_target"
   [[ ${#fetch_flags[@]} -gt 0 ]] && log_info "Using flags: ${fetch_flags[*]}"
 
-  git fetch origin "${fetch_flags[@]+"${fetch_flags[@]}"}" "$fetch_target" || return 1
+  retry "$GIT_NETWORK_ATTEMPTS" git fetch origin "${fetch_flags[@]+"${fetch_flags[@]}"}" "$fetch_target" || return 1
 
   log_success "Fetch completed successfully"
 
@@ -124,7 +128,7 @@ clone_repository() {
     log_info "Existing repository found at '$clone_dir', updating instead of re-cloning"
     pushd "$clone_dir" > /dev/null
     git remote set-url origin "$repo_url" || return 1
-    git fetch --all --prune || return 1
+    retry "$GIT_NETWORK_ATTEMPTS" git fetch --all --prune || return 1
     popd > /dev/null
     log_success "Repository updated at '$clone_dir'"
     return 0
@@ -141,11 +145,11 @@ clone_repository() {
       git remote set-url origin "$repo_url"
     else
       log_warning "Mirror clone failed, falling back to original URL: $repo_url"
-      git clone "${clone_flags[@]}" "$repo_url" . || return 1
+      retry "$GIT_NETWORK_ATTEMPTS" git clone "${clone_flags[@]}" "$repo_url" . || return 1
     fi
   else
     log_info "Clone flags: ${clone_flags[*]}"
-    git clone "${clone_flags[@]}" "$repo_url" . || return 1
+    retry "$GIT_NETWORK_ATTEMPTS" git clone "${clone_flags[@]}" "$repo_url" . || return 1
   fi
 
   popd > /dev/null

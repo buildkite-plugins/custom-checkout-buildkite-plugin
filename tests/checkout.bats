@@ -481,3 +481,82 @@ GITEOF
   echo "Output: $output"
   [ "$status" -eq 1 ]
 }
+@test "Retries a clone that fails transiently" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export CLONE_ATTEMPTS_FILE="$BATS_TEST_TMPDIR/clone_attempts"
+
+  # Fail the first clone, as GitHub does when it briefly answers "Repository not found"
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+#!/usr/bin/env bash
+if [[ "$1" == "clone" ]]; then
+  echo "attempt" >> "$CLONE_ATTEMPTS_FILE"
+  if [[ "$(wc -l < "$CLONE_ATTEMPTS_FILE")" -lt 2 ]]; then
+    echo "remote: Repository not found." >&2
+    exit 128
+  fi
+  mkdir -p ".git"
+fi
+exit 0
+GITEOF
+  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$CLONE_ATTEMPTS_FILE")" -eq 2 ]
+  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/.git" ]
+}
+
+@test "Fails the build after 3 failed clone attempts" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export CLONE_ATTEMPTS_FILE="$BATS_TEST_TMPDIR/clone_attempts"
+
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+#!/usr/bin/env bash
+if [[ "$1" == "clone" ]]; then
+  echo "attempt" >> "$CLONE_ATTEMPTS_FILE"
+  echo "remote: Repository not found." >&2
+  exit 128
+fi
+exit 0
+GITEOF
+  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 1 ]
+  [ "$(wc -l < "$CLONE_ATTEMPTS_FILE")" -eq 3 ]
+}
+
+@test "Retries a commit fetch that fails transiently" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_REF="abc123"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_FETCH="true"
+  export FETCH_ATTEMPTS_FILE="$BATS_TEST_TMPDIR/fetch_attempts"
+
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+#!/usr/bin/env bash
+if [[ "$1" == "clone" ]]; then
+  mkdir -p ".git"
+fi
+if [[ "$1" == "fetch" ]]; then
+  echo "attempt" >> "$FETCH_ATTEMPTS_FILE"
+  if [[ "$(wc -l < "$FETCH_ATTEMPTS_FILE")" -lt 2 ]]; then
+    exit 128
+  fi
+fi
+exit 0
+GITEOF
+  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$FETCH_ATTEMPTS_FILE")" -eq 2 ]
+}

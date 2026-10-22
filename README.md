@@ -12,6 +12,7 @@ A Buildkite plugin for customizing repository checkouts in your pipeline. This p
 - 🔑 SSH key support
 - 📦 Multiple repository support
 - ♻️ Persistent agent support
+- 🔁 Retries clones and fetches that fail transiently (up to 3 attempts)
 
 ## Configuration
 
