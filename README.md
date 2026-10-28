@@ -4,9 +4,9 @@
 > **Some of this plugin's features are now supported natively.** Buildkite agent v3.136.0 and later support these on command steps:
 >
 > - [`checkout.skip`](https://buildkite.com/docs/pipelines/configure/git-checkout#skipping-checkout) in place of `skip_checkout`
-> - [`checkout.depth`](https://buildkite.com/docs/pipelines/configure/git-checkout#shallow-clones) and [`checkout.flags`](https://buildkite.com/docs/pipelines/configure/git-checkout#custom-git-flags) for shallow clones and custom clone or fetch flags on the main repository
+> - [`checkout.depth`](https://buildkite.com/docs/pipelines/configure/git-checkout#shallow-clones) and [`checkout.flags`](https://buildkite.com/docs/pipelines/configure/git-checkout#custom-git-flags) for shallow clones and custom clone or fetch flags on the main repository. These only take effect when the agent runs with [`checkout-override-mode=none`](https://buildkite.com/docs/pipelines/configure/git-checkout#agent-checkout-override-mode). The default `from-job` mode ignores them, and Buildkite hosted agents cannot use `none` mode.
 >
-> If that's all you use this plugin for, we recommend the native options. Keep using this plugin to check out multiple repositories, use custom checkout paths, `mirror_url` or `delete_checkout`, or if your agents are older than v3.136.0. See [Migrating from checkout plugins](https://buildkite.com/docs/pipelines/configure/git-checkout#migrating-from-checkout-plugins).
+> If that's all you use this plugin for, we recommend the native options. Keep using this plugin to check out multiple repositories, use custom checkout paths, `mirror_url` or `delete_checkout`, for shallow clones or custom flags on hosted agents or agents not running in `none` mode, or if your agents are older than v3.136.0. See [Migrating from checkout plugins](https://buildkite.com/docs/pipelines/configure/git-checkout#migrating-from-checkout-plugins).
 
 A Buildkite plugin for customizing repository checkouts in your pipeline. This plugin allows you to:
 - Skip the default repository checkout
