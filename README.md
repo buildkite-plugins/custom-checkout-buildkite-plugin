@@ -1,5 +1,13 @@
 # Custom Checkout Buildkite Plugin
 
+> [!NOTE]
+> **Some of this plugin's features are now supported natively.** Buildkite agent v3.136.0 and later support these on command steps:
+>
+> - [`checkout.skip`](https://buildkite.com/docs/pipelines/configure/git-checkout#skipping-checkout) in place of `skip_checkout`
+> - [`checkout.depth`](https://buildkite.com/docs/pipelines/configure/git-checkout#shallow-clones) and [`checkout.flags`](https://buildkite.com/docs/pipelines/configure/git-checkout#custom-git-flags) for shallow clones and custom clone or fetch flags on the main repository
+>
+> If that's all you use this plugin for, we recommend the native options. Keep using this plugin to check out multiple repositories, use custom checkout paths, `mirror_url` or `delete_checkout`, or if your agents are older than v3.136.0. See [Migrating from checkout plugins](https://buildkite.com/docs/pipelines/configure/git-checkout#migrating-from-checkout-plugins).
+
 A Buildkite plugin for customizing repository checkouts in your pipeline. This plugin allows you to:
 - Skip the default repository checkout
 - Check out multiple repositories
