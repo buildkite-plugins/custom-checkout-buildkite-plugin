@@ -156,6 +156,8 @@ If `mirror_url` points to a path that already exists on the agent (a local path,
 
 Before reading the mirror, the plugin takes an advisory lock (a `mkdir`-created directory at `<mirror_path>.customcheckout.lock`, removed when done) so it doesn't read the mirror's object store while something else is writing to it. This lock is **cooperative**: anything else that updates the mirror on that host (e.g. a cron job doing `git fetch`/`git gc` against it) must create and remove the same `.customcheckout.lock` directory around its own writes for the lock to actually protect anything. If the lock can't be acquired within `mirror_lock_timeout` seconds, the plugin logs a warning and proceeds without it rather than failing the build.
 
+The lock is released automatically on normal exit and on a canceled build (`SIGINT`/`SIGTERM`). If the agent process is force-killed (`SIGKILL`, an OOM kill, a hard agent crash) while the lock is held, the `.customcheckout.lock` directory is left behind and must be removed manually from the mirror host — until then, every build using that mirror will wait out the full `mirror_lock_timeout` before proceeding without the lock.
+
 ```yaml
 steps:
   - label: "Checkout with local mirror reference"

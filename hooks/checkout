@@ -110,6 +110,17 @@ fetch_commit() {
 
 MIRROR_LOCK_SUFFIX=".customcheckout.lock"
 
+# Tracks the lock this process currently holds, so the trap below can release
+# it even if we're killed mid-clone (e.g. a canceled build).
+CURRENT_MIRROR_LOCK_DIR=""
+
+# shellcheck disable=SC2329 # invoked indirectly via the trap below
+release_mirror_lock_on_exit() {
+  [[ -n "$CURRENT_MIRROR_LOCK_DIR" ]] && rmdir "$CURRENT_MIRROR_LOCK_DIR" 2>/dev/null
+  return 0
+}
+trap release_mirror_lock_on_exit EXIT INT TERM
+
 # Advisory lock so we don't read a local mirror while something else is writing to it.
 # Cooperative only: any external process that updates the mirror (e.g. a cron job
 # running git fetch) must also mkdir/rmdir this same path to be respected.
@@ -118,22 +129,37 @@ acquire_mirror_lock() {
   local timeout="$2"
   local lock_dir="${mirror_path%/}${MIRROR_LOCK_SUFFIX}"
   local waited=0
+  local mkdir_err
 
-  while ! mkdir "$lock_dir" 2>/dev/null; do
+  while true; do
+    if mkdir_err=$(mkdir "$lock_dir" 2>&1); then
+      break
+    fi
+
+    if [[ ! -d "$lock_dir" ]]; then
+      # mkdir failed for a reason other than "the lock dir already exists"
+      # (e.g. permission denied on the mirror's parent dir). Retrying for
+      # the full timeout won't help, so fail fast with the real error.
+      echo -e "\033[33m⚠️  WARNING:\033[0m Could not create lock dir '$lock_dir': $mkdir_err" >&2
+      return 1
+    fi
+
     if (( waited >= timeout )); then
-      log_warning "Timed out after ${timeout}s waiting for lock on mirror: $mirror_path"
+      echo -e "\033[33m⚠️  WARNING:\033[0m Timed out after ${timeout}s waiting for lock on mirror: $mirror_path" >&2
       return 1
     fi
     sleep 1
     waited=$((waited + 1))
   done
 
+  CURRENT_MIRROR_LOCK_DIR="$lock_dir"
   echo "$lock_dir"
 }
 
 release_mirror_lock() {
   local lock_dir="$1"
   [[ -n "$lock_dir" ]] && rmdir "$lock_dir" 2>/dev/null
+  [[ "$CURRENT_MIRROR_LOCK_DIR" == "$lock_dir" ]] && CURRENT_MIRROR_LOCK_DIR=""
   return 0
 }
 
