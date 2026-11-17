@@ -108,13 +108,44 @@ fetch_commit() {
   popd > /dev/null
 }
 
+MIRROR_LOCK_SUFFIX=".customcheckout.lock"
+
+# Advisory lock so we don't read a local mirror while something else is writing to it.
+# Cooperative only: any external process that updates the mirror (e.g. a cron job
+# running git fetch) must also mkdir/rmdir this same path to be respected.
+acquire_mirror_lock() {
+  local mirror_path="$1"
+  local timeout="$2"
+  local lock_dir="${mirror_path%/}${MIRROR_LOCK_SUFFIX}"
+  local waited=0
+
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    if (( waited >= timeout )); then
+      log_warning "Timed out after ${timeout}s waiting for lock on mirror: $mirror_path"
+      return 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  echo "$lock_dir"
+}
+
+release_mirror_lock() {
+  local lock_dir="$1"
+  [[ -n "$lock_dir" ]] && rmdir "$lock_dir" 2>/dev/null
+  return 0
+}
+
 clone_repository() {
   local repo_url="$1"
   local checkout_ref="$2"
   local ssh_key_path="$3"
   local clone_dir="$4"
   local mirror_url="${5:-}"
-  local clone_flags=("${@:6}")
+  local mirror_dissociate="${6:-false}"
+  local mirror_lock_timeout="${7:-300}"
+  local clone_flags=("${@:8}")
 
   if [[ -n "$ssh_key_path" ]]; then
     export GIT_SSH_COMMAND="ssh -i $ssh_key_path -o IdentitiesOnly=yes"
@@ -135,13 +166,39 @@ clone_repository() {
   pushd "$clone_dir" > /dev/null
 
   if [[ -n "$mirror_url" ]]; then
-    log_info "Trying to clone from mirror: $mirror_url"
-    if git clone "${clone_flags[@]}" "$mirror_url" .; then
-      log_success "Cloned from mirror: $mirror_url"
-      git remote set-url origin "$repo_url"
+    local mirror_path="${mirror_url#file://}"
+
+    if [[ -d "$mirror_path" ]]; then
+      log_info "Using local mirror as git reference: $mirror_path"
+
+      local lock_dir=""
+      if lock_dir=$(acquire_mirror_lock "$mirror_path" "$mirror_lock_timeout"); then
+        log_info "Acquired lock on mirror: $mirror_path"
+      else
+        log_warning "Proceeding without a lock on mirror: $mirror_path"
+        lock_dir=""
+      fi
+
+      local reference_flags=("--reference" "$mirror_path")
+      [[ "$mirror_dissociate" == "true" ]] && reference_flags+=("--dissociate")
+
+      if git clone "${reference_flags[@]}" "${clone_flags[@]}" "$repo_url" .; then
+        log_success "Cloned $repo_url using reference $mirror_path"
+        release_mirror_lock "$lock_dir"
+      else
+        release_mirror_lock "$lock_dir"
+        log_warning "Reference clone failed, falling back to plain clone: $repo_url"
+        git clone "${clone_flags[@]}" "$repo_url" . || return 1
+      fi
     else
-      log_warning "Mirror clone failed, falling back to original URL: $repo_url"
-      git clone "${clone_flags[@]}" "$repo_url" . || return 1
+      log_info "Trying to clone from mirror: $mirror_url"
+      if git clone "${clone_flags[@]}" "$mirror_url" .; then
+        log_success "Cloned from mirror: $mirror_url"
+        git remote set-url origin "$repo_url"
+      else
+        log_warning "Mirror clone failed, falling back to original URL: $repo_url"
+        git clone "${clone_flags[@]}" "$repo_url" . || return 1
+      fi
     fi
   else
     log_info "Clone flags: ${clone_flags[*]}"
@@ -238,6 +295,8 @@ while true; do
   REPO_SSH_KEY_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_SSH_KEY_PATH"
   REPO_CHECKOUT_PATH_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_CHECKOUT_PATH"
   REPO_FETCH_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_FETCH"
+  REPO_MIRROR_DISSOCIATE_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_MIRROR_DISSOCIATE"
+  REPO_MIRROR_LOCK_TIMEOUT_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_MIRROR_LOCK_TIMEOUT"
 
   CLONE_FLAGS_COUNT=0
   REPO_CLONE_FLAGS=()
@@ -272,6 +331,8 @@ while true; do
   REPO_SSH_KEY_PATH="${!REPO_SSH_KEY_VAR:-}"
   REPO_CHECKOUT_PATH="${!REPO_CHECKOUT_PATH_VAR:-}"
   REPO_FETCH="${!REPO_FETCH_VAR:-false}"
+  REPO_MIRROR_DISSOCIATE="${!REPO_MIRROR_DISSOCIATE_VAR:-false}"
+  REPO_MIRROR_LOCK_TIMEOUT="${!REPO_MIRROR_LOCK_TIMEOUT_VAR:-300}"
 
   # Determine the checkout directory for this repository
   if [[ -n "$REPO_CHECKOUT_PATH" ]]; then
@@ -298,7 +359,7 @@ while true; do
     fi
   fi
 
-  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$REPO_CLONE_DIR" "$REPO_MIRROR_URL" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
+  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$REPO_CLONE_DIR" "$REPO_MIRROR_URL" "$REPO_MIRROR_DISSOCIATE" "$REPO_MIRROR_LOCK_TIMEOUT" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
     CLONE_SUCCESS=true
     log_success "Successfully cloned repository $REPO_URL"
   else

@@ -66,7 +66,9 @@ Each repository in the `repos` list can have the following options:
 | Option        | Required | Default  | Description                                 |
 |---------------|----------|--------- |---------------------------------------------|
 | `url`         | true     |          | Repository Git URL                          |
-| `mirror_url`  | false    |          | Optional mirror URL for faster/local clone  |
+| `mirror_url`  | false    |          | Optional mirror for faster cloning. A local path or `file://` URL is used as a `git clone --reference`; anything else is cloned directly then the remote is repointed to `url` |
+| `mirror_dissociate` | false | `false` | Local `mirror_url` only. Adds `--dissociate` to the reference clone so the checkout doesn't stay dependent on the mirror |
+| `mirror_lock_timeout` | false | `300` | Local `mirror_url` only. Seconds to wait for the advisory lock on the mirror before proceeding without one |
 | `ref`         | false    |          | Branch, tag, or commit to checkout          |
 | `clone_flags` | false    | `["-v"]` | Additional flags for git clone              |
 | `fetch`       | false    | `false`  | Perform git fetch after clone, before checkout |
@@ -147,6 +149,29 @@ steps:
               mirror_url: "https://git-mirror.local/org/repo.git"
               ref: "main"
 ```
+
+### Clone with Local Mirror (git object reference)
+
+If `mirror_url` points to a path that already exists on the agent (a local path, or a `file://` URL), it's used as a `git clone --reference` against `url` instead of being cloned directly. This shares objects from a local mirror/cache to speed up clones and save disk, without changing the remote. If the path doesn't exist or the reference clone fails, it falls back to a plain clone of `url`.
+
+Before reading the mirror, the plugin takes an advisory lock (a `mkdir`-created directory at `<mirror_path>.customcheckout.lock`, removed when done) so it doesn't read the mirror's object store while something else is writing to it. This lock is **cooperative**: anything else that updates the mirror on that host (e.g. a cron job doing `git fetch`/`git gc` against it) must create and remove the same `.customcheckout.lock` directory around its own writes for the lock to actually protect anything. If the lock can't be acquired within `mirror_lock_timeout` seconds, the plugin logs a warning and proceeds without it rather than failing the build.
+
+```yaml
+steps:
+  - label: "Checkout with local mirror reference"
+    command: "buildkite-agent pipeline upload"
+    plugins:
+      - custom-checkout#v1.8.0:
+          skip_checkout: true
+          repos:
+            - url: "https://github.com/org/repo.git"
+              mirror_url: "/var/cache/git-mirrors/repo.git"
+              mirror_dissociate: true
+              mirror_lock_timeout: 60
+              ref: "main"
+```
+
+`mirror_dissociate: true` adds `--dissociate`, so Git copies the objects it needs out of the mirror right away instead of keeping the checkout dependent on the mirror's objects persisting — use it if the mirror could be deleted, garbage-collected, or otherwise mutated after this build's checkout completes.
 
 ### Shallow Clone with Fetch
 
