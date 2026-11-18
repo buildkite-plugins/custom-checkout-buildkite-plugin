@@ -68,7 +68,6 @@ Each repository in the `repos` list can have the following options:
 | `url`         | true     |          | Repository Git URL                          |
 | `mirror_url`  | false    |          | Optional mirror for faster cloning. A local path or `file://` URL is used as a `git clone --reference`; anything else is cloned directly then the remote is repointed to `url` |
 | `mirror_dissociate` | false | `false` | Local `mirror_url` only. Adds `--dissociate` to the reference clone so the checkout doesn't stay dependent on the mirror |
-| `mirror_lock_timeout` | false | `300` | Local `mirror_url` only. Seconds to wait for the advisory lock on the mirror before proceeding without one |
 | `ref`         | false    |          | Branch, tag, or commit to checkout          |
 | `clone_flags` | false    | `["-v"]` | Additional flags for git clone              |
 | `fetch`       | false    | `false`  | Perform git fetch after clone, before checkout |
@@ -154,9 +153,9 @@ steps:
 
 If `mirror_url` points to a path that already exists on the agent (a local path, or a `file://` URL), it's used as a `git clone --reference` against `url` instead of being cloned directly. This shares objects from a local mirror/cache to speed up clones and save disk, without changing the remote. If the path doesn't exist or the reference clone fails, it falls back to a plain clone of `url`.
 
-Before reading the mirror, the plugin takes an advisory readers-writer lock keyed on a `<mirror_path>.customcheckout.lock` directory, so it doesn't read the mirror's object store while something else is writing to it. Concurrent reference clones from this plugin (parallel steps/builds sharing one mirror) share the lock as readers rather than serializing against each other; the `.customcheckout.lock` directory itself is only held (via `mkdir`/`rmdir`) while at least one reader is active. This lock is **cooperative**: anything else that updates the mirror on that host (e.g. a cron job doing `git fetch`/`git gc` against it) must create and remove that same `.customcheckout.lock` directory around its own writes — as an exclusive writer — for the lock to actually protect anything. If the lock can't be acquired within `mirror_lock_timeout` seconds, the plugin logs a warning and proceeds without it rather than failing the build.
+The plugin holds an exclusive `<mirror_path>.customcheckout.lock` directory lock during the reference clone. Relative paths are resolved from the build checkout directory; symlinks are resolved before choosing the lock path. Mirror writers must create and remove the same lock directory around updates. If the lock is busy or cannot be created, the plugin immediately falls back to a plain clone of `url` without reading the mirror.
 
-The lock is released automatically on normal exit and on a canceled build (`SIGINT`/`SIGTERM`). If the agent process is force-killed (`SIGKILL`, an OOM kill, a hard agent crash) while the lock is held, the `.customcheckout.lock` directory (and its `.readers-mutex`/`.readers-count` helper paths) are left behind and must be removed manually from the mirror host — until then, every build using that mirror will wait out the full `mirror_lock_timeout` before proceeding without the lock.
+The lock is released when the reference clone exits. A force-killed process (`SIGKILL`) can leave a stale lock directory. Remove it manually after confirming no clone or mirror writer is using it. Until then, builds use plain clones.
 
 ```yaml
 steps:
@@ -169,7 +168,6 @@ steps:
             - url: "https://github.com/org/repo.git"
               mirror_url: "/var/cache/git-mirrors/repo.git"
               mirror_dissociate: true
-              mirror_lock_timeout: 60
               ref: "main"
 ```
 

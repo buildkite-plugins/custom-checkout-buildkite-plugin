@@ -75,225 +75,119 @@ teardown() {
   [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/.git" ]
 }
 
-@test "Uses git --reference when mirror_url is an existing local path" {
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
-
-  local_mirror="$BUILDKITE_BUILD_CHECKOUT_PATH/local-mirror.git"
-  mkdir -p "$local_mirror"
+setup_reference_repository() {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="file://$BATS_TEST_TMPDIR/source"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_CHECKOUT_PATH="clone"
+  local_mirror="$BATS_TEST_TMPDIR/local mirror.git"
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_URL="$local_mirror"
+  clone_dir="$BUILDKITE_BUILD_CHECKOUT_PATH/clone"
 
-  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<GITEOF
+  /usr/bin/git init "$BATS_TEST_TMPDIR/source"
+  /usr/bin/git -C "$BATS_TEST_TMPDIR/source" -c user.name=Test -c user.email=test@example.com commit --allow-empty -m initial
+  /usr/bin/git clone --mirror "$BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL" "$local_mirror"
+  /usr/bin/git -C "$BATS_TEST_TMPDIR/source" -c user.name=Test -c user.email=test@example.com commit --allow-empty -m newer
+  expected_commit=$(/usr/bin/git -C "$BATS_TEST_TMPDIR/source" rev-parse HEAD)
+
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
 #!/usr/bin/env bash
-if [[ "\$1" == "clone" ]]; then
-  mkdir -p ".git"
-  echo "\$@" > ".git/clone_called"
-  exit 0
+if [[ "$1" == clone && "$2" == --reference ]]; then
+  [[ -d "$3.customcheckout.lock" ]] || exit 97
 fi
-exit 0
+exec /usr/bin/git "$@"
 GITEOF
-  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
+}
+
+@test "Local paths, file:// URLs and relative symlinks reference the mirror but clone the real URL" {
+  setup_reference_repository
+  ln -s "$local_mirror" "$BUILDKITE_BUILD_CHECKOUT_PATH/mirror-alias"
+
+  for mirror_url in "$local_mirror" "file://$local_mirror" "file://${local_mirror// /%20}" "mirror-alias/"; do
+    export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_URL="$mirror_url"
+    run run_plugin_hook "checkout"
+
+    echo "Output: $output"
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$clone_dir" rev-parse HEAD)" = "$expected_commit" ]
+    [ "$(git -C "$clone_dir" remote get-url origin)" = "$BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL" ]
+    [ "$(cat "$clone_dir/.git/objects/info/alternates")" = "$local_mirror/objects" ]
+    [ ! -d "${local_mirror}.customcheckout.lock" ]
+    rm -rf "$clone_dir"
+  done
+}
+
+@test "Dissociated reference clone works after the mirror is removed" {
+  setup_reference_repository
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_DISSOCIATE=true
 
   run run_plugin_hook "checkout"
 
   echo "Output: $output"
   [ "$status" -eq 0 ]
-  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/.git" ]
-
-  grep -q -- "--reference" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
-  grep -q -- "$local_mirror" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
-  grep -q -- "https://github.com/example/repo.git" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
-  ! grep -q -- "--dissociate" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
-
-  # Lock was acquired and released, not left behind
+  [ ! -e "$clone_dir/.git/objects/info/alternates" ]
+  rm -rf "$local_mirror"
+  [ "$(git -C "$clone_dir" rev-parse HEAD)" = "$expected_commit" ]
+  git -C "$clone_dir" fsck --full
   [ ! -d "${local_mirror}.customcheckout.lock" ]
 }
 
-@test "Uses git --reference when mirror_url is a file:// URL to an existing local path" {
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
-
-  local_mirror="$BUILDKITE_BUILD_CHECKOUT_PATH/local-mirror.git"
-  mkdir -p "$local_mirror"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_URL="file://$local_mirror"
-
-  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<GITEOF
-#!/usr/bin/env bash
-if [[ "\$1" == "clone" ]]; then
-  mkdir -p ".git"
-  echo "\$@" > ".git/clone_called"
-  exit 0
-fi
-exit 0
-GITEOF
-  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
+@test "Busy mirror lock falls back without reading the mirror or removing its lock" {
+  setup_reference_repository
+  mkdir "${local_mirror}.customcheckout.lock"
 
   run run_plugin_hook "checkout"
 
   echo "Output: $output"
   [ "$status" -eq 0 ]
-  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/.git" ]
-
-  grep -q -- "--reference" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
-  grep -q -- "https://github.com/example/repo.git" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
-
-  # The "file://" scheme is stripped before being passed to --reference: git
-  # itself doesn't accept a file:// URL there, only a plain filesystem path.
-  grep -q -- "$local_mirror" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
-  ! grep -q -- "file://" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
-
-  # The lock is keyed on the stripped path, not the file:// URL, so it's
-  # released against the same path a cooperating external writer would use.
-  [ ! -d "${local_mirror}.customcheckout.lock" ]
-}
-
-@test "Adds --dissociate when mirror_dissociate is enabled for a local mirror_url" {
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
-
-  local_mirror="$BUILDKITE_BUILD_CHECKOUT_PATH/local-mirror.git"
-  mkdir -p "$local_mirror"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_URL="$local_mirror"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_DISSOCIATE="true"
-
-  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<GITEOF
-#!/usr/bin/env bash
-if [[ "\$1" == "clone" ]]; then
-  mkdir -p ".git"
-  echo "\$@" > ".git/clone_called"
-  exit 0
-fi
-exit 0
-GITEOF
-  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
-
-  run run_plugin_hook "checkout"
-
-  echo "Output: $output"
-  [ "$status" -eq 0 ]
-  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/.git" ]
-
-  grep -q -- "--reference" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
-  grep -q -- "--dissociate" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
-}
-
-@test "Proceeds without a lock when the mirror lock can't be acquired before timeout" {
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
-
-  local_mirror="$BUILDKITE_BUILD_CHECKOUT_PATH/local-mirror.git"
-  mkdir -p "$local_mirror"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_URL="$local_mirror"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_LOCK_TIMEOUT="1"
-
-  # Simulate the lock already being held by something else
-  mkdir -p "${local_mirror}.customcheckout.lock"
-
-  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<GITEOF
-#!/usr/bin/env bash
-if [[ "\$1" == "clone" ]]; then
-  mkdir -p ".git"
-  echo "\$@" > ".git/clone_called"
-  exit 0
-fi
-exit 0
-GITEOF
-  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
-
-  run run_plugin_hook "checkout"
-
-  echo "Output: $output"
-  [ "$status" -eq 0 ]
-  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/.git" ]
-
-  # Still used --reference (we proceed without the lock rather than failing)
-  grep -q -- "--reference" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
-
-  # The lock dir we didn't create is left untouched
+  [ "$(git -C "$clone_dir" rev-parse HEAD)" = "$expected_commit" ]
+  [ ! -e "$clone_dir/.git/objects/info/alternates" ]
   [ -d "${local_mirror}.customcheckout.lock" ]
 }
 
-@test "Falls back to plain clone when reference clone with local mirror_url fails" {
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
-
-  local_mirror="$BUILDKITE_BUILD_CHECKOUT_PATH/local-mirror.git"
-  mkdir -p "$local_mirror"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_URL="$local_mirror"
-
-  # The failed reference clone leaves junk behind in the clone dir, which the
-  # plugin clears before retrying. That clone dir is $BUILDKITE_BUILD_CHECKOUT_PATH
-  # itself here, so the mock git must live outside it to survive the clear.
-  mock_bin="$(mktemp -d)"
-  export PATH="$mock_bin:$PATH"
-  cat > "$mock_bin/git" <<'GITEOF'
-#!/usr/bin/env bash
-if [[ "$1" == "clone" ]]; then
-  for arg in "$@"; do
-    if [[ "$arg" == "--reference" ]]; then
-      echo "[mock git] reference clone failed" >&2
-      mkdir -p "junk-from-failed-checkout"
-      exit 1
-    fi
-  done
-  mkdir -p ".git"
-  exit 0
-fi
-exit 0
-GITEOF
-  chmod +x "$mock_bin/git"
+@test "Invalid local reference falls back to a plain clone and releases its lock" {
+  setup_reference_repository
+  rm -rf "$local_mirror"
+  mkdir "$local_mirror"
 
   run run_plugin_hook "checkout"
 
   echo "Output: $output"
   [ "$status" -eq 0 ]
-  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/.git" ]
-  [ ! -d "$BUILDKITE_BUILD_CHECKOUT_PATH/junk-from-failed-checkout" ]
+  [ "$(git -C "$clone_dir" rev-parse HEAD)" = "$expected_commit" ]
+  [ ! -e "$clone_dir/.git/objects/info/alternates" ]
+  [ ! -d "${local_mirror}.customcheckout.lock" ]
 }
 
-@test "Clones multiple repositories each using their own local mirror reference" {
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo1.git"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_1_URL="https://github.com/example/repo2.git"
-
-  mirror1="$BUILDKITE_BUILD_CHECKOUT_PATH/local-mirror1.git"
-  mirror2="$BUILDKITE_BUILD_CHECKOUT_PATH/local-mirror2.git"
-  mkdir -p "$mirror1" "$mirror2"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_URL="$mirror1"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_DISSOCIATE="true"
-  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_1_MIRROR_URL="$mirror2"
-
-  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<GITEOF
+@test "Reference fallback removes partial clone files, not pre-existing checkout files" {
+  setup_reference_repository
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
 #!/usr/bin/env bash
-if [[ "\$1" == "clone" ]]; then
-  mkdir -p ".git"
-  echo "\$@" > ".git/clone_called"
-  exit 0
+if [[ "$1" == clone && "$2" == --reference ]]; then
+  if [[ ! -e keep ]]; then
+    mkdir -p .git
+    touch partial-checkout
+  fi
+  exit 1
 fi
-exit 0
+exec /usr/bin/git "$@"
 GITEOF
-  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
 
   run run_plugin_hook "checkout"
-
   echo "Output: $output"
   [ "$status" -eq 0 ]
-  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git" ]
-  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/repo2/.git" ]
+  [ "$(git -C "$clone_dir" rev-parse HEAD)" = "$expected_commit" ]
+  [ ! -e "$clone_dir/partial-checkout" ]
+  [ ! -e "$clone_dir/.git/objects/info/alternates" ]
 
-  # repo1 referenced mirror1 and dissociated
-  grep -q -- "--reference" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git/clone_called"
-  grep -q -- "$mirror1" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git/clone_called"
-  grep -q -- "--dissociate" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo1/.git/clone_called"
-
-  # repo2 referenced mirror2 and did NOT dissociate
-  grep -q -- "--reference" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo2/.git/clone_called"
-  grep -q -- "$mirror2" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo2/.git/clone_called"
-  ! grep -q -- "--dissociate" "$BUILDKITE_BUILD_CHECKOUT_PATH/repo2/.git/clone_called"
-
-  # Both locks were released
-  [ ! -d "${mirror1}.customcheckout.lock" ]
-  [ ! -d "${mirror2}.customcheckout.lock" ]
+  rm -rf "$clone_dir"
+  mkdir "$clone_dir"
+  echo keep > "$clone_dir/keep"
+  run run_plugin_hook "checkout"
+  echo "Output: $output"
+  [ "$status" -ne 0 ]
+  [ "$(cat "$clone_dir/keep")" = keep ]
+  [ ! -d "${local_mirror}.customcheckout.lock" ]
 }
 
 @test "Uses only original URL if mirror_url is not provided" {
