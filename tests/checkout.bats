@@ -109,6 +109,44 @@ GITEOF
   [ ! -d "${local_mirror}.customcheckout.lock" ]
 }
 
+@test "Uses git --reference when mirror_url is a file:// URL to an existing local path" {
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
+
+  local_mirror="$BUILDKITE_BUILD_CHECKOUT_PATH/local-mirror.git"
+  mkdir -p "$local_mirror"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_URL="file://$local_mirror"
+
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<GITEOF
+#!/usr/bin/env bash
+if [[ "\$1" == "clone" ]]; then
+  mkdir -p ".git"
+  echo "\$@" > ".git/clone_called"
+  exit 0
+fi
+exit 0
+GITEOF
+  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+  [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/.git" ]
+
+  grep -q -- "--reference" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
+  grep -q -- "https://github.com/example/repo.git" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
+
+  # The "file://" scheme is stripped before being passed to --reference: git
+  # itself doesn't accept a file:// URL there, only a plain filesystem path.
+  grep -q -- "$local_mirror" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
+  ! grep -q -- "file://" "$BUILDKITE_BUILD_CHECKOUT_PATH/.git/clone_called"
+
+  # The lock is keyed on the stripped path, not the file:// URL, so it's
+  # released against the same path a cooperating external writer would use.
+  [ ! -d "${local_mirror}.customcheckout.lock" ]
+}
+
 @test "Adds --dissociate when mirror_dissociate is enabled for a local mirror_url" {
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
