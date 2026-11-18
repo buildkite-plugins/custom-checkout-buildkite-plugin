@@ -110,57 +110,145 @@ fetch_commit() {
 
 MIRROR_LOCK_SUFFIX=".customcheckout.lock"
 
-# Tracks the lock this process currently holds, so the trap below can release
-# it even if we're killed mid-clone (e.g. a canceled build).
-CURRENT_MIRROR_LOCK_DIR=""
+# Tracks the mirror this process currently holds a read registration against,
+# so the trap below can release it even if we're killed mid-clone (e.g. a
+# canceled build).
+CURRENT_MIRROR_LOCK_BASE=""
 
-# shellcheck disable=SC2329 # invoked indirectly via the trap below
+# shellcheck disable=SC2329 # invoked indirectly via the traps below
 release_mirror_lock_on_exit() {
-  [[ -n "$CURRENT_MIRROR_LOCK_DIR" ]] && rmdir "$CURRENT_MIRROR_LOCK_DIR" 2>/dev/null
+  [[ -n "$CURRENT_MIRROR_LOCK_BASE" ]] && release_mirror_lock "$CURRENT_MIRROR_LOCK_BASE"
   return 0
 }
-trap release_mirror_lock_on_exit EXIT INT TERM
 
-# Advisory lock so we don't read a local mirror while something else is writing to it.
-# Cooperative only: any external process that updates the mirror (e.g. a cron job
-# running git fetch) must also mkdir/rmdir this same path to be respected.
-acquire_mirror_lock() {
-  local mirror_path="$1"
-  local timeout="$2"
-  local lock_dir="${mirror_path%/}${MIRROR_LOCK_SUFFIX}"
-  local waited=0
+# On INT/TERM, release the lock and then re-raise the signal against ourselves
+# instead of letting the trap handler return: a plain `trap ... INT TERM`
+# would swallow the signal and let the script run to completion, which means
+# a Buildkite build cancellation (SIGTERM) would silently keep cloning.
+# shellcheck disable=SC2329 # invoked indirectly via the traps below
+on_mirror_lock_signal() {
+  local sig="$1"
+  release_mirror_lock_on_exit
+  trap - EXIT "$sig"
+  kill -s "$sig" "$$"
+}
+trap release_mirror_lock_on_exit EXIT
+trap 'on_mirror_lock_signal INT' INT
+trap 'on_mirror_lock_signal TERM' TERM
+
+# Waits for exclusive ownership of $1 (via mkdir) until the epoch second in
+# $2, sleeping between attempts. Returns 1 immediately on a non-contention
+# mkdir failure (e.g. permission denied), since waiting out the deadline
+# won't help that case.
+mkdir_wait() {
+  local dir="$1"
+  local deadline="$2"
   local mkdir_err
 
   while true; do
-    if mkdir_err=$(mkdir "$lock_dir" 2>&1); then
-      break
+    if mkdir_err=$(mkdir "$dir" 2>&1); then
+      return 0
     fi
 
-    if [[ ! -d "$lock_dir" ]]; then
-      # mkdir failed for a reason other than "the lock dir already exists"
-      # (e.g. permission denied on the mirror's parent dir). Retrying for
-      # the full timeout won't help, so fail fast with the real error.
-      echo -e "\033[33m⚠️  WARNING:\033[0m Could not create lock dir '$lock_dir': $mkdir_err" >&2
+    if [[ ! -d "$dir" ]]; then
+      echo -e "\033[33m⚠️  WARNING:\033[0m Could not create lock dir '$dir': $mkdir_err" >&2
       return 1
     fi
 
-    if (( waited >= timeout )); then
-      echo -e "\033[33m⚠️  WARNING:\033[0m Timed out after ${timeout}s waiting for lock on mirror: $mirror_path" >&2
+    if (( $(date +%s) >= deadline )); then
       return 1
     fi
     sleep 1
-    waited=$((waited + 1))
   done
+}
 
-  CURRENT_MIRROR_LOCK_DIR="$lock_dir"
-  echo "$lock_dir"
+# Advisory readers-writer lock so we don't read a local mirror while something
+# else is writing to it, while letting multiple concurrent reference clones
+# from this plugin (parallel steps/builds sharing one mirror) share the lock
+# instead of needlessly serializing against each other.
+#
+# Only the ".customcheckout.lock" directory itself is part of the external,
+# cooperative contract: any external process that updates the mirror (e.g. a
+# cron job running git fetch) must mkdir/rmdir that exact path around its own
+# writes for the lock to actually protect anything. It's held only while at
+# least one reader is active, via a reader count guarded by a second, short-
+# lived mutex directory that external writers never need to know about.
+acquire_mirror_lock() {
+  local mirror_path="$1"
+  local timeout="$2"
+  local base="${mirror_path%/}"
+  local lock_dir="${base}${MIRROR_LOCK_SUFFIX}"
+  local mutex_dir="${lock_dir}.readers-mutex"
+  local count_file="${lock_dir}.readers-count"
+  local deadline=$(( $(date +%s) + timeout ))
+  local count
+
+  if ! mkdir_wait "$mutex_dir" "$deadline"; then
+    echo -e "\033[33m⚠️  WARNING:\033[0m Timed out after ${timeout}s waiting for the readers mutex on mirror: $mirror_path" >&2
+    return 1
+  fi
+
+  count=$(cat "$count_file" 2>/dev/null)
+  [[ "$count" =~ ^[0-9]+$ ]] || count=0
+
+  if (( count == 0 )); then
+    # We're the first reader: take the real lock, so a writer waits for us.
+    if ! mkdir_wait "$lock_dir" "$deadline"; then
+      rmdir "$mutex_dir" 2>/dev/null
+      echo -e "\033[33m⚠️  WARNING:\033[0m Timed out after ${timeout}s waiting for lock on mirror: $mirror_path" >&2
+      return 1
+    fi
+  fi
+
+  echo "$(( count + 1 ))" > "$count_file"
+  rmdir "$mutex_dir" 2>/dev/null
+
+  CURRENT_MIRROR_LOCK_BASE="$base"
+  echo "$base"
 }
 
 release_mirror_lock() {
-  local lock_dir="$1"
-  [[ -n "$lock_dir" ]] && rmdir "$lock_dir" 2>/dev/null
-  [[ "$CURRENT_MIRROR_LOCK_DIR" == "$lock_dir" ]] && CURRENT_MIRROR_LOCK_DIR=""
+  local base="$1"
+  [[ -z "$base" ]] && return 0
+
+  local lock_dir="${base}${MIRROR_LOCK_SUFFIX}"
+  local mutex_dir="${lock_dir}.readers-mutex"
+  local count_file="${lock_dir}.readers-count"
+  local count
+
+  # The mutex is only ever held for the moment it takes to read and write the
+  # count file, so a stuck mkdir almost certainly means it was left behind by
+  # a process that was killed mid-update. Steal it rather than leaking this
+  # reader's slot (and the lock itself) forever.
+  if ! mkdir_wait "$mutex_dir" "$(( $(date +%s) + 30 ))"; then
+    echo -e "\033[33m⚠️  WARNING:\033[0m Readers mutex on '$base' looked stale; stealing it" >&2
+    rmdir "$mutex_dir" 2>/dev/null
+    mkdir "$mutex_dir" 2>/dev/null || true
+  fi
+
+  count=$(cat "$count_file" 2>/dev/null)
+  [[ "$count" =~ ^[0-9]+$ ]] || count=0
+  (( count > 0 )) && count=$(( count - 1 ))
+
+  if (( count == 0 )); then
+    rm -f "$count_file" 2>/dev/null
+    rmdir "$lock_dir" 2>/dev/null
+  else
+    echo "$count" > "$count_file"
+  fi
+
+  rmdir "$mutex_dir" 2>/dev/null
+  [[ "$CURRENT_MIRROR_LOCK_BASE" == "$base" ]] && CURRENT_MIRROR_LOCK_BASE=""
   return 0
+}
+
+# A clone that fails partway through checkout (rather than during fetch) can
+# leave a non-empty .git and working tree behind (git's own junk_mode leaves
+# the partial repo in place once checkout has started). Clear the directory
+# before retrying a clone into it, or the retry fails with "destination path
+# '.' already exists and is not an empty directory".
+clean_clone_dir_contents() {
+  find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 }
 
 clone_repository() {
@@ -197,12 +285,12 @@ clone_repository() {
     if [[ -d "$mirror_path" ]]; then
       log_info "Using local mirror as git reference: $mirror_path"
 
-      local lock_dir=""
-      if lock_dir=$(acquire_mirror_lock "$mirror_path" "$mirror_lock_timeout"); then
+      local lock_handle=""
+      if lock_handle=$(acquire_mirror_lock "$mirror_path" "$mirror_lock_timeout"); then
         log_info "Acquired lock on mirror: $mirror_path"
       else
         log_warning "Proceeding without a lock on mirror: $mirror_path"
-        lock_dir=""
+        lock_handle=""
       fi
 
       local reference_flags=("--reference" "$mirror_path")
@@ -210,10 +298,11 @@ clone_repository() {
 
       if git clone "${reference_flags[@]}" "${clone_flags[@]}" "$repo_url" .; then
         log_success "Cloned $repo_url using reference $mirror_path"
-        release_mirror_lock "$lock_dir"
+        release_mirror_lock "$lock_handle"
       else
-        release_mirror_lock "$lock_dir"
+        release_mirror_lock "$lock_handle"
         log_warning "Reference clone failed, falling back to plain clone: $repo_url"
+        clean_clone_dir_contents
         git clone "${clone_flags[@]}" "$repo_url" . || return 1
       fi
     else
@@ -223,6 +312,7 @@ clone_repository() {
         git remote set-url origin "$repo_url"
       else
         log_warning "Mirror clone failed, falling back to original URL: $repo_url"
+        clean_clone_dir_contents
         git clone "${clone_flags[@]}" "$repo_url" . || return 1
       fi
     fi

@@ -183,12 +183,18 @@ GITEOF
   mkdir -p "$local_mirror"
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_URL="$local_mirror"
 
-  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+  # The failed reference clone leaves junk behind in the clone dir, which the
+  # plugin clears before retrying. That clone dir is $BUILDKITE_BUILD_CHECKOUT_PATH
+  # itself here, so the mock git must live outside it to survive the clear.
+  mock_bin="$(mktemp -d)"
+  export PATH="$mock_bin:$PATH"
+  cat > "$mock_bin/git" <<'GITEOF'
 #!/usr/bin/env bash
 if [[ "$1" == "clone" ]]; then
   for arg in "$@"; do
     if [[ "$arg" == "--reference" ]]; then
       echo "[mock git] reference clone failed" >&2
+      mkdir -p "junk-from-failed-checkout"
       exit 1
     fi
   done
@@ -197,13 +203,14 @@ if [[ "$1" == "clone" ]]; then
 fi
 exit 0
 GITEOF
-  chmod +x "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git"
+  chmod +x "$mock_bin/git"
 
   run run_plugin_hook "checkout"
 
   echo "Output: $output"
   [ "$status" -eq 0 ]
   [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/.git" ]
+  [ ! -d "$BUILDKITE_BUILD_CHECKOUT_PATH/junk-from-failed-checkout" ]
 }
 
 @test "Clones multiple repositories each using their own local mirror reference" {
