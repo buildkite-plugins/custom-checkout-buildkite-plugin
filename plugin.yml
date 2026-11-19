@@ -31,7 +31,11 @@ configuration:
             description: "Repository Git URL."
           mirror_url:
             type: string
-            description: "Optional mirror URL for faster or local cloning."
+            description: "Optional mirror for faster cloning. An existing local path or file:// URL is used as git clone --reference against 'url', with an exclusive directory lock. If the lock or reference clone fails, falls back to a plain clone of 'url'. Remote mirrors are cloned directly, then origin is repointed to 'url'."
+          mirror_dissociate:
+            type: boolean
+            default: false
+            description: "Adds --dissociate to the reference clone, copying the needed objects out of the mirror immediately so the checkout no longer depends on the mirror persisting. Only applies when mirror_url is a local path, and only on a fresh clone — an existing checkout that's reused on a persistent agent keeps depending on the mirror even if you enable this afterward."
           ref:
             type: string
             description: "Branch, tag, or commit to checkout."

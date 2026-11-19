@@ -75,6 +75,166 @@ teardown() {
   [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH/.git" ]
 }
 
+setup_reference_repository() {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="file://$BATS_TEST_TMPDIR/source"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_CHECKOUT_PATH="clone"
+  local_mirror="$BATS_TEST_TMPDIR/local mirror.git"
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_URL="$local_mirror"
+  clone_dir="$BUILDKITE_BUILD_CHECKOUT_PATH/clone"
+
+  /usr/bin/git init "$BATS_TEST_TMPDIR/source"
+  /usr/bin/git -C "$BATS_TEST_TMPDIR/source" -c user.name=Test -c user.email=test@example.com commit --allow-empty -m initial
+  /usr/bin/git clone --mirror "$BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL" "$local_mirror"
+  /usr/bin/git -C "$BATS_TEST_TMPDIR/source" -c user.name=Test -c user.email=test@example.com commit --allow-empty -m newer
+  expected_commit=$(/usr/bin/git -C "$BATS_TEST_TMPDIR/source" rev-parse HEAD)
+
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+#!/usr/bin/env bash
+if [[ "$1" == clone && "$2" == --reference ]]; then
+  [[ -d "$3.customcheckout.lock" ]] || exit 97
+fi
+exec /usr/bin/git "$@"
+GITEOF
+}
+
+@test "Local paths, file:// URLs and relative symlinks reference the mirror but clone the real URL" {
+  setup_reference_repository
+  ln -s "$local_mirror" "$BUILDKITE_BUILD_CHECKOUT_PATH/mirror-alias"
+
+  for mirror_url in "$local_mirror" "file://$local_mirror" "file://${local_mirror// /%20}" "mirror-alias/"; do
+    export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_URL="$mirror_url"
+    run run_plugin_hook "checkout"
+
+    echo "Output: $output"
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$clone_dir" rev-parse HEAD)" = "$expected_commit" ]
+    [ "$(git -C "$clone_dir" remote get-url origin)" = "$BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL" ]
+    [ "$(cat "$clone_dir/.git/objects/info/alternates")" = "$local_mirror/objects" ]
+    [ ! -d "${local_mirror}.customcheckout.lock" ]
+    rm -rf "$clone_dir"
+  done
+}
+
+@test "Dissociated reference clone works after the mirror is removed" {
+  setup_reference_repository
+  export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_MIRROR_DISSOCIATE=true
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+  [ ! -e "$clone_dir/.git/objects/info/alternates" ]
+  rm -rf "$local_mirror"
+  [ "$(git -C "$clone_dir" rev-parse HEAD)" = "$expected_commit" ]
+  git -C "$clone_dir" fsck --full
+  [ ! -d "${local_mirror}.customcheckout.lock" ]
+}
+
+@test "Busy mirror lock falls back without reading the mirror or removing its lock" {
+  setup_reference_repository
+  mkdir "${local_mirror}.customcheckout.lock"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$clone_dir" rev-parse HEAD)" = "$expected_commit" ]
+  [ ! -e "$clone_dir/.git/objects/info/alternates" ]
+  [ -d "${local_mirror}.customcheckout.lock" ]
+}
+
+@test "Invalid local reference falls back to a plain clone and releases its lock" {
+  setup_reference_repository
+  rm -rf "$local_mirror"
+  mkdir "$local_mirror"
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$clone_dir" rev-parse HEAD)" = "$expected_commit" ]
+  [ ! -e "$clone_dir/.git/objects/info/alternates" ]
+  [ ! -d "${local_mirror}.customcheckout.lock" ]
+}
+
+@test "Reference fallback removes partial clone files, not pre-existing checkout files" {
+  setup_reference_repository
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+#!/usr/bin/env bash
+if [[ "$1" == clone && "$2" == --reference ]]; then
+  if [[ ! -e keep ]]; then
+    mkdir -p .git
+    touch partial-checkout
+  fi
+  exit 1
+fi
+exec /usr/bin/git "$@"
+GITEOF
+
+  run run_plugin_hook "checkout"
+  echo "Output: $output"
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$clone_dir" rev-parse HEAD)" = "$expected_commit" ]
+  [ ! -e "$clone_dir/partial-checkout" ]
+  [ ! -e "$clone_dir/.git/objects/info/alternates" ]
+
+  rm -rf "$clone_dir"
+  mkdir "$clone_dir"
+  echo keep > "$clone_dir/keep"
+  run run_plugin_hook "checkout"
+  echo "Output: $output"
+  [ "$status" -ne 0 ]
+  [ "$(cat "$clone_dir/keep")" = keep ]
+  [ ! -d "${local_mirror}.customcheckout.lock" ]
+}
+
+@test "Reference clone canceled with SIGINT propagates instead of retrying with a plain clone" {
+  setup_reference_repository
+  # Simulates a reference clone killed by Buildkite's cancel signal: the real
+  # git would exit 130 in that case, not a plain failure.
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+#!/usr/bin/env bash
+if [[ "$1" == clone && "$2" == --reference ]]; then
+  [[ -d "$3.customcheckout.lock" ]] || exit 97
+  exit 130
+fi
+exec /usr/bin/git "$@"
+GITEOF
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 130 ]
+  [[ "$output" == *"canceled"* ]]
+  [ ! -e "$clone_dir/.git" ]
+  [ ! -d "${local_mirror}.customcheckout.lock" ]
+}
+
+@test "Reference clone canceled with the configured BUILDKITE_CANCEL_SIGNAL propagates instead of retrying" {
+  setup_reference_repository
+  export BUILDKITE_CANCEL_SIGNAL="SIGINT"
+  # Same simulated cancellation, this time asserting the configured cancel
+  # signal (not just the hardcoded INT/TERM cases) is honored.
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+#!/usr/bin/env bash
+if [[ "$1" == clone && "$2" == --reference ]]; then
+  [[ -d "$3.customcheckout.lock" ]] || exit 97
+  exit 130
+fi
+exec /usr/bin/git "$@"
+GITEOF
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 130 ]
+  [[ "$output" == *"canceled"* ]]
+  [ ! -e "$clone_dir/.git" ]
+  [ ! -d "${local_mirror}.customcheckout.lock" ]
+}
+
 @test "Uses only original URL if mirror_url is not provided" {
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
