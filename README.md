@@ -171,7 +171,7 @@ steps:
               ref: "main"
 ```
 
-`mirror_dissociate: true` adds `--dissociate`, so Git copies the objects it needs out of the mirror right away instead of keeping the checkout dependent on the mirror's objects persisting — use it if the mirror could be deleted, garbage-collected, or otherwise mutated after this build's checkout completes.
+`mirror_dissociate: true` adds `--dissociate`, so Git copies the objects it needs out of the mirror right away instead of keeping the checkout dependent on the mirror's objects persisting — use it if the mirror could be deleted, garbage-collected, or otherwise mutated after this build's checkout completes. This only applies to fresh clones — a reused checkout on a persistent agent keeps depending on the mirror even if you enable it afterward. To remove the dependency, recreate the checkout, or dissociate it manually (git -C <checkout_path> repack -a -d, then remove .git/objects/info/alternates), before removing the mirror.
 
 ### Shallow Clone with Fetch
 

@@ -35,7 +35,7 @@ configuration:
           mirror_dissociate:
             type: boolean
             default: false
-            description: "Only applies when mirror_url is a local path. If true, adds --dissociate to the reference clone, copying the needed objects out of the mirror immediately so the checkout no longer depends on the mirror persisting."
+            description: "Adds --dissociate to the reference clone, copying the needed objects out of the mirror immediately so the checkout no longer depends on the mirror persisting. Only applies when mirror_url is a local path, and only on a fresh clone — an existing checkout that's reused on a persistent agent keeps depending on the mirror even if you enable this afterward."
           ref:
             type: string
             description: "Branch, tag, or commit to checkout."
