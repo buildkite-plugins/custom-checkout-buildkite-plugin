@@ -7,6 +7,15 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/plugin.bash"
 # Keep the existing settings
 set -euo pipefail
 
+# Signal Buildkite uses to cancel this job (defaults to SIGTERM, but an org
+# or agent can configure a different one, e.g. SIGINT). Trapping it lets a
+# canceled reference clone stop instead of silently retrying with a plain
+# clone. See BUILDKITE_CANCEL_SIGNAL in Buildkite's agent docs.
+CANCEL_SIGNAL="${BUILDKITE_CANCEL_SIGNAL:-SIGTERM}"
+CANCEL_SIGNAL="${CANCEL_SIGNAL#SIG}"
+CANCEL_SIGNAL_NUM=$(kill -l "$CANCEL_SIGNAL" 2>/dev/null) || { CANCEL_SIGNAL=TERM; CANCEL_SIGNAL_NUM=15; }
+CANCEL_EXIT_STATUS=$((128 + CANCEL_SIGNAL_NUM))
+
 check_required_env() {
   if [[ -z "${!1:-}" ]]; then
     log_error "Required environment variable $1 is not set"
@@ -119,6 +128,9 @@ clone_with_reference() (
   trap 'rmdir "$lock_dir"' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
+  # Buildkite's configured cancel signal may be neither of the above.
+  # shellcheck disable=SC2064 # intentional: expand the fixed, already-known status now
+  trap "exit $CANCEL_EXIT_STATUS" "$CANCEL_SIGNAL"
 
   git clone --reference "$mirror_path" "$@"
 )
@@ -131,6 +143,7 @@ clone_repository() {
   local mirror_url="${5:-}"
   local mirror_dissociate="${6:-false}"
   local clone_flags=("${@:7}")
+  local reference_status
 
   if [[ -n "$ssh_key_path" ]]; then
     export GIT_SSH_COMMAND="ssh -i $ssh_key_path -o IdentitiesOnly=yes"
@@ -170,6 +183,11 @@ clone_repository() {
       if clone_with_reference "$mirror_path" "${reference_flags[@]+"${reference_flags[@]}"}" "${clone_flags[@]}" "$repo_url" .; then
         log_success "Cloned $repo_url using reference $mirror_path"
       else
+        reference_status=$?
+        if [[ "$reference_status" == "130" || "$reference_status" == "143" || "$reference_status" == "$CANCEL_EXIT_STATUS" ]]; then
+          log_error "Reference clone was canceled (exit $reference_status); not retrying with a plain clone"
+          exit "$reference_status"
+        fi
         log_warning "Reference clone or mirror lock failed, falling back to plain clone: $repo_url"
         # Git can leave files after a failed checkout; preserve pre-existing files.
         if [[ "$clone_dir_was_empty" == "true" ]]; then

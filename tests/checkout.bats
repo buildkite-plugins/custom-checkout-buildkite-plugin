@@ -190,6 +190,51 @@ GITEOF
   [ ! -d "${local_mirror}.customcheckout.lock" ]
 }
 
+@test "Reference clone canceled with SIGINT propagates instead of retrying with a plain clone" {
+  setup_reference_repository
+  # Simulates a reference clone killed by Buildkite's cancel signal: the real
+  # git would exit 130 in that case, not a plain failure.
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+#!/usr/bin/env bash
+if [[ "$1" == clone && "$2" == --reference ]]; then
+  [[ -d "$3.customcheckout.lock" ]] || exit 97
+  exit 130
+fi
+exec /usr/bin/git "$@"
+GITEOF
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 130 ]
+  [[ "$output" == *"canceled"* ]]
+  [ ! -e "$clone_dir/.git" ]
+  [ ! -d "${local_mirror}.customcheckout.lock" ]
+}
+
+@test "Reference clone canceled with the configured BUILDKITE_CANCEL_SIGNAL propagates instead of retrying" {
+  setup_reference_repository
+  export BUILDKITE_CANCEL_SIGNAL="SIGINT"
+  # Same simulated cancellation, this time asserting the configured cancel
+  # signal (not just the hardcoded INT/TERM cases) is honored.
+  cat > "$BUILDKITE_BUILD_CHECKOUT_PATH/bin/git" <<'GITEOF'
+#!/usr/bin/env bash
+if [[ "$1" == clone && "$2" == --reference ]]; then
+  [[ -d "$3.customcheckout.lock" ]] || exit 97
+  exit 130
+fi
+exec /usr/bin/git "$@"
+GITEOF
+
+  run run_plugin_hook "checkout"
+
+  echo "Output: $output"
+  [ "$status" -eq 130 ]
+  [[ "$output" == *"canceled"* ]]
+  [ ! -e "$clone_dir/.git" ]
+  [ ! -d "${local_mirror}.customcheckout.lock" ]
+}
+
 @test "Uses only original URL if mirror_url is not provided" {
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_SKIP_CHECKOUT="false"
   export BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_0_URL="https://github.com/example/repo.git"
