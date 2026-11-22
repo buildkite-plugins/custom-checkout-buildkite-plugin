@@ -7,6 +7,15 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/plugin.bash"
 # Keep the existing settings
 set -euo pipefail
 
+# Signal Buildkite uses to cancel this job (defaults to SIGTERM, but an org
+# or agent can configure a different one, e.g. SIGINT). Trapping it lets a
+# canceled reference clone stop instead of silently retrying with a plain
+# clone. See BUILDKITE_CANCEL_SIGNAL in Buildkite's agent docs.
+CANCEL_SIGNAL="${BUILDKITE_CANCEL_SIGNAL:-SIGTERM}"
+CANCEL_SIGNAL="${CANCEL_SIGNAL#SIG}"
+CANCEL_SIGNAL_NUM=$(kill -l "$CANCEL_SIGNAL" 2>/dev/null) || { CANCEL_SIGNAL=TERM; CANCEL_SIGNAL_NUM=15; }
+CANCEL_EXIT_STATUS=$((128 + CANCEL_SIGNAL_NUM))
+
 check_required_env() {
   if [[ -z "${!1:-}" ]]; then
     log_error "Required environment variable $1 is not set"
@@ -108,13 +117,33 @@ fetch_commit() {
   popd > /dev/null
 }
 
+clone_with_reference() (
+  local mirror_path
+  mirror_path=$(cd "$1" && pwd -P) || return 1
+  shift
+  local lock_dir="${mirror_path}.customcheckout.lock"
+
+  # Mirror writers must use the same lock. Never read an unlocked mirror.
+  mkdir "$lock_dir" || return 1
+  trap 'rmdir "$lock_dir"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  # Buildkite's configured cancel signal may be neither of the above.
+  # shellcheck disable=SC2064 # intentional: expand the fixed, already-known status now
+  trap "exit $CANCEL_EXIT_STATUS" "$CANCEL_SIGNAL"
+
+  git clone --reference "$mirror_path" "$@"
+)
+
 clone_repository() {
   local repo_url="$1"
   local checkout_ref="$2"
   local ssh_key_path="$3"
   local clone_dir="$4"
   local mirror_url="${5:-}"
-  local clone_flags=("${@:6}")
+  local mirror_dissociate="${6:-false}"
+  local clone_flags=("${@:7}")
+  local reference_status
 
   if [[ -n "$ssh_key_path" ]]; then
     export GIT_SSH_COMMAND="ssh -i $ssh_key_path -o IdentitiesOnly=yes"
@@ -132,16 +161,52 @@ clone_repository() {
 
   log_info "Cloning repository into '$clone_dir'"
   mkdir -p "$clone_dir"
+  local mirror_path="${mirror_url#file://}"
+  if [[ "$mirror_url" == file://* ]]; then
+    # Decode URL escapes without interpreting literal backslashes in the path.
+    mirror_path="${mirror_path//\\/\\\\}"
+    printf -v mirror_path '%b' "${mirror_path//%/\\x}"
+  fi
+  [[ "$mirror_path" = /* ]] || mirror_path="$PWD/$mirror_path"
   pushd "$clone_dir" > /dev/null
 
+  local clone_dir_was_empty=false
+  [[ -z "$(ls -A .)" ]] && clone_dir_was_empty=true
+
   if [[ -n "$mirror_url" ]]; then
-    log_info "Trying to clone from mirror: $mirror_url"
-    if git clone "${clone_flags[@]}" "$mirror_url" .; then
-      log_success "Cloned from mirror: $mirror_url"
-      git remote set-url origin "$repo_url"
+    if [[ -e "$mirror_path" ]]; then
+      log_info "Using local mirror as git reference: $mirror_path"
+
+      local reference_flags=()
+      [[ "$mirror_dissociate" == "true" ]] && reference_flags+=("--dissociate")
+
+      if clone_with_reference "$mirror_path" "${reference_flags[@]+"${reference_flags[@]}"}" "${clone_flags[@]}" "$repo_url" .; then
+        log_success "Cloned $repo_url using reference $mirror_path"
+      else
+        reference_status=$?
+        if [[ "$reference_status" == "130" || "$reference_status" == "143" || "$reference_status" == "$CANCEL_EXIT_STATUS" ]]; then
+          log_error "Reference clone was canceled (exit $reference_status); not retrying with a plain clone"
+          exit "$reference_status"
+        fi
+        log_warning "Reference clone or mirror lock failed, falling back to plain clone: $repo_url"
+        # Git can leave files after a failed checkout; preserve pre-existing files.
+        if [[ "$clone_dir_was_empty" == "true" ]]; then
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+        fi
+        git clone "${clone_flags[@]}" "$repo_url" . || return 1
+      fi
     else
-      log_warning "Mirror clone failed, falling back to original URL: $repo_url"
-      git clone "${clone_flags[@]}" "$repo_url" . || return 1
+      log_info "Trying to clone from mirror: $mirror_url"
+      if git clone "${clone_flags[@]}" "$mirror_url" .; then
+        log_success "Cloned from mirror: $mirror_url"
+        git remote set-url origin "$repo_url"
+      else
+        log_warning "Mirror clone failed, falling back to original URL: $repo_url"
+        if [[ "$clone_dir_was_empty" == "true" ]]; then
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+        fi
+        git clone "${clone_flags[@]}" "$repo_url" . || return 1
+      fi
     fi
   else
     log_info "Clone flags: ${clone_flags[*]}"
@@ -238,6 +303,7 @@ while true; do
   REPO_SSH_KEY_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_SSH_KEY_PATH"
   REPO_CHECKOUT_PATH_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_CHECKOUT_PATH"
   REPO_FETCH_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_FETCH"
+  REPO_MIRROR_DISSOCIATE_VAR="BUILDKITE_PLUGIN_CUSTOM_CHECKOUT_REPOS_${REPOS_COUNT}_MIRROR_DISSOCIATE"
 
   CLONE_FLAGS_COUNT=0
   REPO_CLONE_FLAGS=()
@@ -272,6 +338,7 @@ while true; do
   REPO_SSH_KEY_PATH="${!REPO_SSH_KEY_VAR:-}"
   REPO_CHECKOUT_PATH="${!REPO_CHECKOUT_PATH_VAR:-}"
   REPO_FETCH="${!REPO_FETCH_VAR:-false}"
+  REPO_MIRROR_DISSOCIATE="${!REPO_MIRROR_DISSOCIATE_VAR:-false}"
 
   # Determine the checkout directory for this repository
   if [[ -n "$REPO_CHECKOUT_PATH" ]]; then
@@ -298,7 +365,7 @@ while true; do
     fi
   fi
 
-  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$REPO_CLONE_DIR" "$REPO_MIRROR_URL" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
+  if clone_repository "$REPO_URL" "$REPO_REF" "$REPO_SSH_KEY_PATH" "$REPO_CLONE_DIR" "$REPO_MIRROR_URL" "$REPO_MIRROR_DISSOCIATE" "${REPO_CLONE_FLAGS[@]+"${REPO_CLONE_FLAGS[@]}"}"; then
     CLONE_SUCCESS=true
     log_success "Successfully cloned repository $REPO_URL"
   else

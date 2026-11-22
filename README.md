@@ -66,7 +66,8 @@ Each repository in the `repos` list can have the following options:
 | Option        | Required | Default  | Description                                 |
 |---------------|----------|--------- |---------------------------------------------|
 | `url`         | true     |          | Repository Git URL                          |
-| `mirror_url`  | false    |          | Optional mirror URL for faster/local clone  |
+| `mirror_url`  | false    |          | Optional mirror for faster cloning. A local path or `file://` URL is used as a `git clone --reference`; anything else is cloned directly then the remote is repointed to `url` |
+| `mirror_dissociate` | false | `false` | Local `mirror_url` only. Adds `--dissociate` to the reference clone so the checkout doesn't stay dependent on the mirror |
 | `ref`         | false    |          | Branch, tag, or commit to checkout          |
 | `clone_flags` | false    | `["-v"]` | Additional flags for git clone              |
 | `fetch`       | false    | `false`  | Perform git fetch after clone, before checkout |
@@ -147,6 +148,30 @@ steps:
               mirror_url: "https://git-mirror.local/org/repo.git"
               ref: "main"
 ```
+
+### Clone with Local Mirror (git object reference)
+
+If `mirror_url` points to a path that already exists on the agent (a local path, or a `file://` URL), it's used as a `git clone --reference` against `url` instead of being cloned directly. This shares objects from a local mirror/cache to speed up clones and save disk, without changing the remote. If the path doesn't exist or the reference clone fails, it falls back to a plain clone of `url`.
+
+The plugin holds an exclusive `<mirror_path>.customcheckout.lock` directory lock during the reference clone. Relative paths are resolved from the build checkout directory; symlinks are resolved before choosing the lock path. Mirror writers must create and remove the same lock directory around updates. If the lock is busy or cannot be created, the plugin immediately falls back to a plain clone of `url` without reading the mirror.
+
+The lock is released when the reference clone exits. A force-killed process (`SIGKILL`) can leave a stale lock directory. Remove it manually after confirming no clone or mirror writer is using it. Until then, builds use plain clones.
+
+```yaml
+steps:
+  - label: "Checkout with local mirror reference"
+    command: "buildkite-agent pipeline upload"
+    plugins:
+      - custom-checkout#v1.8.0:
+          skip_checkout: true
+          repos:
+            - url: "https://github.com/org/repo.git"
+              mirror_url: "/var/cache/git-mirrors/repo.git"
+              mirror_dissociate: true
+              ref: "main"
+```
+
+`mirror_dissociate: true` adds `--dissociate`, so Git copies the objects it needs out of the mirror right away instead of keeping the checkout dependent on the mirror's objects persisting — use it if the mirror could be deleted, garbage-collected, or otherwise mutated after this build's checkout completes. This only applies to fresh clones — a reused checkout on a persistent agent keeps depending on the mirror even if you enable it afterward. To remove the dependency, recreate the checkout, or dissociate it manually (git -C <checkout_path> repack -a -d, then remove .git/objects/info/alternates), before removing the mirror.
 
 ### Shallow Clone with Fetch
 
