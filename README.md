@@ -30,7 +30,7 @@ steps:
   - label: "Skip checkout"
     command: 'echo "Skipping checkout"'
     plugins:
-      - custom-checkout#v1.8.0:
+      - custom-checkout#v1.9.0:
           skip_checkout: true
 ```
 
@@ -41,7 +41,7 @@ steps:
   - label: "Custom repository checkout"
     command: "buildkite-agent pipeline upload"
     plugins:
-      - custom-checkout#v1.8.0:
+      - custom-checkout#v1.9.0:
           skip_checkout: true
           repos:
             - url: "https://github.com/org/repo.git"
@@ -83,7 +83,7 @@ steps:
   - label: "Skip checkout"
     command: 'echo "Skipping checkout"'
     plugins:
-      - custom-checkout#v1.8.0:
+      - custom-checkout#v1.9.0:
           skip_checkout: true
 ```
 
@@ -94,7 +94,7 @@ steps:
   - label: "Custom checkout"
     command: "buildkite-agent pipeline upload"
     plugins:
-      - custom-checkout#v1.8.0:
+      - custom-checkout#v1.9.0:
           skip_checkout: true
           repos:
             - url: "https://github.com/org/repo.git"
@@ -107,7 +107,7 @@ steps:
   - label: "Multiple repos"
     command: "./script.sh"
     plugins:
-      - custom-checkout#v1.8.0:
+      - custom-checkout#v1.9.0:
           skip_checkout: true
           repos:
             - url: "https://github.com/org/repo1.git"
@@ -123,7 +123,7 @@ steps:
   - label: "Custom paths"
     command: "./script.sh"
     plugins:
-      - custom-checkout#v1.8.0:
+      - custom-checkout#v1.9.0:
           skip_checkout: true
           repos:
             - url: "https://github.com/org/repo1.git"
@@ -141,7 +141,7 @@ steps:
   - label: "Checkout with mirror"
     command: "buildkite-agent pipeline upload"
     plugins:
-      - custom-checkout#v1.8.0:
+      - custom-checkout#v1.9.0:
           skip_checkout: true
           repos:
             - url: "https://github.com/org/repo.git"
@@ -162,7 +162,7 @@ steps:
   - label: "Checkout with local mirror reference"
     command: "buildkite-agent pipeline upload"
     plugins:
-      - custom-checkout#v1.8.0:
+      - custom-checkout#v1.9.0:
           skip_checkout: true
           repos:
             - url: "https://github.com/org/repo.git"
@@ -180,7 +180,7 @@ steps:
   - label: "Shallow clone with fetch"
     command: "buildkite-agent pipeline upload"
     plugins:
-      - custom-checkout#v1.8.0:
+      - custom-checkout#v1.9.0:
           skip_checkout: true
           repos:
             - url: "https://github.com/org/repo.git"
